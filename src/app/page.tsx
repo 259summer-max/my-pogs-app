@@ -10,7 +10,6 @@ import {
   RefreshCw, 
   Loader2,
   Plus,
-  Calendar,
   BarChart3,
   ListTodo,
   Layers
@@ -45,6 +44,22 @@ interface LogItem {
   reason_if_failed?: string;
   season_id?: string;
 }
+
+// 🗓️ 일요일(00:00:00) ~ 토요일(23:59:59) 주간 범위 계산 함수
+const getSundayToSaturdayWeekRange = (targetDate: Date = new Date()) => {
+  const current = new Date(targetDate);
+  const day = current.getDay(); // 0: 일요일, 1: 월요일 ... 6: 토요일
+  
+  const sunday = new Date(current);
+  sunday.setDate(current.getDate() - day);
+  sunday.setHours(0, 0, 0, 0);
+
+  const saturday = new Date(sunday);
+  saturday.setDate(sunday.getDate() + 6);
+  saturday.setHours(23, 59, 59, 999);
+
+  return { sunday, saturday };
+};
 
 export default function POGSDashboard() {
   const [seasons, setSeasons] = useState<SeasonItem[]>([]);
@@ -117,7 +132,7 @@ export default function POGSDashboard() {
 
   const currentSeason = seasons.find(s => s.season_id === currentSeasonId) || seasons[0];
 
-  // 체크 토글
+  // 체크 토글 (오늘 기준)
   const handleToggleComplete = async (standardId: string | number, currentCompleted: boolean) => {
     const nextStatus = !currentCompleted;
     setSyncing(true);
@@ -289,14 +304,26 @@ export default function POGSDashboard() {
     }
   };
 
-  // 현재 시즌 필터링
+  // 현재 시즌 기준 실천 항목들
   const seasonStandards = standards.filter(s => !s.season_id || s.season_id === currentSeasonId);
   const currentStandards = seasonStandards.filter(s => (s.frequency || 'daily') === activeTab);
+  
+  // 일일 실천 달성률
   const dailyStandards = seasonStandards.filter(s => (s.frequency || 'daily') === 'daily');
   const dailyCompletedCount = dailyStandards.filter(s => {
     const log = logs.find(l => String(l.standard_id) === String(s.id) && String(l.date).startsWith(todayStr));
     return log?.is_completed;
   }).length;
+
+  // 🗓️ 이번 주(일요일~토요일) 실천 계산 로직
+  const { sunday, saturday } = getSundayToSaturdayWeekRange();
+  const getWeeklyCompletedCount = (stdId: string | number) => {
+    return logs.filter(l => {
+      if (String(l.standard_id) !== String(stdId) || !l.is_completed) return false;
+      const logDate = new Date(l.date);
+      return logDate >= sunday && logDate <= saturday;
+    }).length;
+  };
 
   // 통계 리포트 데이터 산출
   const objectives = ['하나님과의 관계', '자기 자신과의 관계', '공동체와의 관계', '세상과의 관계'];
@@ -434,24 +461,25 @@ export default function POGSDashboard() {
                   const todayLog = logs.find(
                     l => String(l.standard_id) === String(std.id) && String(l.date).startsWith(todayStr)
                   );
-                  const isCompleted = todayLog?.is_completed || false;
+                  const isCompletedToday = todayLog?.is_completed || false;
                   const failReason = todayLog?.reason_if_failed;
+                  const weeklyCount = getWeeklyCompletedCount(std.id);
 
                   return (
                     <div 
                       key={std.id}
                       className={`p-4 rounded-2xl bg-white border transition-all ${
-                        isCompleted 
+                        isCompletedToday 
                           ? 'border-emerald-200 bg-emerald-50/20' 
                           : 'border-slate-200 shadow-xs'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <button 
-                          onClick={() => handleToggleComplete(std.id, isCompleted)}
+                          onClick={() => handleToggleComplete(std.id, isCompletedToday)}
                           className="mt-0.5 text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
                         >
-                          {isCompleted ? (
+                          {isCompletedToday ? (
                             <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                           ) : (
                             <Circle className="w-5 h-5" />
@@ -465,6 +493,11 @@ export default function POGSDashboard() {
                                 {std.objective}
                               </span>
                             )}
+                            {std.frequency === 'weekly' && (
+                              <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                                이번 주 (일~토): {weeklyCount}회 실천
+                              </span>
+                            )}
                             {std.target_days && (
                               <span className="text-[10px] font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
                                 {std.target_days}
@@ -473,7 +506,7 @@ export default function POGSDashboard() {
                           </div>
 
                           <p className={`text-sm font-semibold leading-snug ${
-                            isCompleted ? 'line-through text-slate-400' : 'text-slate-800'
+                            isCompletedToday ? 'line-through text-slate-400' : 'text-slate-800'
                           }`}>
                             {std.standard || '실천 내용 없음'}
                           </p>
@@ -492,7 +525,7 @@ export default function POGSDashboard() {
                           )}
                         </div>
 
-                        {!isCompleted && (
+                        {!isCompletedToday && (
                           <button 
                             onClick={() => {
                               setSelectedStandard(std);
@@ -514,7 +547,6 @@ export default function POGSDashboard() {
         ) : (
           /* 시즌 점검 & 회고(Analytics) 뷰 */
           <div className="space-y-4">
-            {/* 영역별 종합 실천 현황 */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
               <h3 className="text-xs font-bold text-slate-900 mb-3 flex items-center gap-1.5">
                 <Layers className="w-4 h-4 text-indigo-600" />
@@ -539,7 +571,6 @@ export default function POGSDashboard() {
               </div>
             </div>
 
-            {/* 미실천 사유 & 피드백 모아보기 */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
               <h3 className="text-xs font-bold text-slate-900 mb-3 flex items-center gap-1.5">
                 <AlertCircle className="w-4 h-4 text-rose-500" />
