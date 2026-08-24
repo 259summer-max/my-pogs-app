@@ -23,20 +23,14 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: "POGS Dashboard",
   description: "Purpose, Objectives, Goals, Standards Dashboard",
-  manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
     title: "POGS",
   },
   icons: {
-    icon: [
-      { url: "/icon.png", sizes: "192x192", type: "image/png" },
-      { url: "/icon.png", sizes: "512x512", type: "image/png" },
-    ],
-    apple: [
-      { url: "/icon.png", sizes: "180x180", type: "image/png" },
-    ],
+    icon: "/icon.png?v=2",
+    apple: "/apple-touch-icon.png?v=2",
   },
 };
 
@@ -48,7 +42,9 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <head>
-        <link rel="apple-touch-icon" href="/icon.png" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
+        <link rel="apple-touch-icon-precomposed" href="/apple-touch-icon.png?v=2" />
+        <link rel="icon" href="/icon.png?v=2" />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased selection:bg-indigo-500 selection:text-white`}
