@@ -9,11 +9,25 @@ import {
   MessageSquare, 
   RefreshCw, 
   Loader2,
-  Plus
+  Plus,
+  Calendar,
+  BarChart3,
+  ListTodo,
+  Layers
 } from 'lucide-react';
+
+interface SeasonItem {
+  season_id: string;
+  title: string;
+  purpose: string;
+  start_date: string;
+  end_date: string;
+  is_active: boolean | string;
+}
 
 interface StandardItem {
   id: string | number;
+  season_id?: string;
   objective?: string;
   goal?: string;
   standard?: string;
@@ -29,31 +43,25 @@ interface LogItem {
   standard_id: string | number;
   is_completed: boolean;
   reason_if_failed?: string;
-}
-
-interface AppConfig {
-  purpose?: string;
-  start_date?: string;
-  end_date?: string;
-  period?: string;
+  season_id?: string;
 }
 
 export default function POGSDashboard() {
-  const [config, setConfig] = useState<AppConfig>({
-    purpose: '목적을 불러오는 중...',
-    period: '2026.01.01 ~ 2026.06.30'
-  });
+  const [seasons, setSeasons] = useState<SeasonItem[]>([]);
+  const [currentSeasonId, setCurrentSeasonId] = useState<string>('');
   const [standards, setStandards] = useState<StandardItem[]>([]);
   const [logs, setLogs] = useState<LogItem[]>([]);
+  
+  const [mainView, setMainView] = useState<'checklist' | 'analytics'>('checklist');
   const [activeTab, setActiveTab] = useState<'daily' | 'weekly' | 'monthly' | 'long_term'>('daily');
   const [loading, setLoading] = useState<boolean>(true);
   const [syncing, setSyncing] = useState<boolean>(false);
 
-  // 미실천 사유 작성 모달
+  // 미실천 사유 모달
   const [selectedStandard, setSelectedStandard] = useState<StandardItem | null>(null);
   const [reasonInput, setReasonInput] = useState('');
 
-  // 어플 내 신규 항목 추가 모달
+  // 실천 항목 추가 모달
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newObjective, setNewObjective] = useState('하나님과의 관계');
   const [newGoal, setNewGoal] = useState('');
@@ -61,12 +69,19 @@ export default function POGSDashboard() {
   const [newFrequency, setNewFrequency] = useState<'daily' | 'weekly' | 'monthly' | 'long_term'>('daily');
   const [newTargetDays, setNewTargetDays] = useState('');
 
+  // 새 시즌 생성 모달
+  const [isNewSeasonModalOpen, setIsNewSeasonModalOpen] = useState(false);
+  const [newSeasonTitle, setNewSeasonTitle] = useState('');
+  const [newSeasonPurpose, setNewSeasonPurpose] = useState('');
+  const [newSeasonStart, setNewSeasonStart] = useState('');
+  const [newSeasonEnd, setNewSeasonEnd] = useState('');
+
   const API_URL = process.env.NEXT_PUBLIC_POGS_API_URL || '';
   const todayStr = new Date().toISOString().split('T')[0];
 
   const formatDateStr = (rawDate?: string) => {
     if (!rawDate) return '';
-    if (rawDate.includes('T')) return rawDate.split('T')[0].replace(/-/g, '.');
+    if (String(rawDate).includes('T')) return String(rawDate).split('T')[0].replace(/-/g, '.');
     return String(rawDate).slice(0, 10).replace(/-/g, '.');
   };
 
@@ -79,7 +94,12 @@ export default function POGSDashboard() {
     try {
       const res = await fetch(API_URL);
       const data = await res.json();
-      if (data.config) setConfig(data.config);
+      if (data.seasons && data.seasons.length > 0) {
+        setSeasons(data.seasons);
+        const active = data.seasons.find((s: SeasonItem) => s.is_active === true || String(s.is_active).toUpperCase() === 'TRUE');
+        if (active) setCurrentSeasonId(active.season_id);
+        else setCurrentSeasonId(data.seasons[0].season_id);
+      }
       if (data.standards) {
         setStandards(data.standards.filter((s: any) => s.is_active !== false && String(s.is_active).toUpperCase() !== 'FALSE'));
       }
@@ -95,6 +115,9 @@ export default function POGSDashboard() {
     fetchData();
   }, []);
 
+  const currentSeason = seasons.find(s => s.season_id === currentSeasonId) || seasons[0];
+
+  // 체크 토글
   const handleToggleComplete = async (standardId: string | number, currentCompleted: boolean) => {
     const nextStatus = !currentCompleted;
     setSyncing(true);
@@ -111,7 +134,8 @@ export default function POGSDashboard() {
         log_id: Date.now().toString(),
         date: todayStr,
         standard_id: standardId,
-        is_completed: nextStatus
+        is_completed: nextStatus,
+        season_id: currentSeasonId
       });
     }
     setLogs(updatedLogs);
@@ -125,7 +149,8 @@ export default function POGSDashboard() {
           date: todayStr,
           standard_id: standardId,
           is_completed: nextStatus,
-          reason_if_failed: ''
+          reason_if_failed: '',
+          season_id: currentSeasonId
         })
       });
     } catch (err) {
@@ -135,6 +160,7 @@ export default function POGSDashboard() {
     }
   };
 
+  // 피드백 저장
   const handleSaveReason = async () => {
     if (!selectedStandard) return;
     setSyncing(true);
@@ -157,7 +183,8 @@ export default function POGSDashboard() {
         date: todayStr,
         standard_id: standardId,
         is_completed: false,
-        reason_if_failed: reasonInput
+        reason_if_failed: reasonInput,
+        season_id: currentSeasonId
       });
     }
     setLogs(updatedLogs);
@@ -171,7 +198,8 @@ export default function POGSDashboard() {
           date: todayStr,
           standard_id: standardId,
           is_completed: false,
-          reason_if_failed: reasonInput
+          reason_if_failed: reasonInput,
+          season_id: currentSeasonId
         })
       });
     } catch (err) {
@@ -183,7 +211,7 @@ export default function POGSDashboard() {
     }
   };
 
-  // 어플에서 새 항목 추가 핸들러
+  // 새 실천 항목 추가
   const handleAddNewStandard = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newStandard.trim()) return;
@@ -192,6 +220,7 @@ export default function POGSDashboard() {
     const tempId = Date.now().toString();
     const newItem: StandardItem = {
       id: tempId,
+      season_id: currentSeasonId,
       objective: newObjective,
       goal: newGoal,
       standard: newStandard,
@@ -209,6 +238,7 @@ export default function POGSDashboard() {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: 'ADD_STANDARD',
+          season_id: currentSeasonId,
           objective: newObjective,
           goal: newGoal,
           standard: newStandard,
@@ -216,10 +246,9 @@ export default function POGSDashboard() {
           target_days: newTargetDays
         })
       });
-      // 등록 후 리프레시
       fetchData();
     } catch (err) {
-      console.error('신규 항목 추가 실패:', err);
+      console.error('항목 추가 실패:', err);
     } finally {
       setSyncing(false);
       setNewGoal('');
@@ -228,24 +257,90 @@ export default function POGSDashboard() {
     }
   };
 
-  const currentStandards = standards.filter(s => (s.frequency || 'daily') === activeTab);
-  const dailyStandards = standards.filter(s => (s.frequency || 'daily') === 'daily');
+  // 새 시즌 생성
+  const handleCreateSeason = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSeasonTitle || !newSeasonPurpose) return;
+
+    setSyncing(true);
+    setIsNewSeasonModalOpen(false);
+
+    try {
+      await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'CREATE_SEASON',
+          title: newSeasonTitle,
+          purpose: newSeasonPurpose,
+          start_date: newSeasonStart,
+          end_date: newSeasonEnd
+        })
+      });
+      fetchData();
+    } catch (err) {
+      console.error('새 시즌 생성 실패:', err);
+    } finally {
+      setSyncing(false);
+      setNewSeasonTitle('');
+      setNewSeasonPurpose('');
+      setNewSeasonStart('');
+      setNewSeasonEnd('');
+    }
+  };
+
+  // 현재 시즌 필터링
+  const seasonStandards = standards.filter(s => !s.season_id || s.season_id === currentSeasonId);
+  const currentStandards = seasonStandards.filter(s => (s.frequency || 'daily') === activeTab);
+  const dailyStandards = seasonStandards.filter(s => (s.frequency || 'daily') === 'daily');
   const dailyCompletedCount = dailyStandards.filter(s => {
     const log = logs.find(l => String(l.standard_id) === String(s.id) && String(l.date).startsWith(todayStr));
     return log?.is_completed;
   }).length;
 
+  // 통계 리포트 데이터 산출
+  const objectives = ['하나님과의 관계', '자기 자신과의 관계', '공동체와의 관계', '세상과의 관계'];
+  const analyticsData = objectives.map(obj => {
+    const objStandards = seasonStandards.filter(s => s.objective === obj);
+    const objStandardIds = objStandards.map(s => String(s.id));
+    const completedLogsCount = logs.filter(l => objStandardIds.includes(String(l.standard_id)) && l.is_completed).length;
+    return {
+      objective: obj,
+      standardCount: objStandards.length,
+      totalCompleted: completedLogsCount
+    };
+  });
+
+  const failureLogs = logs.filter(l => l.reason_if_failed && l.reason_if_failed.trim() !== '');
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 pb-24 font-sans">
-      {/* 1. 최상단 헤더 */}
-      <header className="bg-white border-b border-slate-200 px-5 pt-7 pb-5 sticky top-0 z-10 shadow-xs">
+      {/* 1. 최상단 시즌 & Purpose 헤더 */}
+      <header className="bg-white border-b border-slate-200 px-5 pt-6 pb-5 sticky top-0 z-10 shadow-xs">
         <div className="max-w-md mx-auto">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>POGS Dashboard</span>
+          {/* 상단 컨트롤러: 시즌 선택 드롭다운 & 새 시즌 버튼 */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <select 
+                value={currentSeasonId} 
+                onChange={(e) => setCurrentSeasonId(e.target.value)}
+                className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg focus:outline-none"
+              >
+                {seasons.map(s => (
+                  <option key={s.season_id} value={s.season_id}>
+                    {s.title}
+                  </option>
+                ))}
+              </select>
+              
+              <button 
+                onClick={() => setIsNewSeasonModalOpen(true)}
+                className="text-[11px] font-semibold text-slate-500 hover:text-indigo-600 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
+              >
+                <Plus className="w-3 h-3" /> 새 시즌
+              </button>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <button 
                 onClick={fetchData} 
@@ -255,167 +350,315 @@ export default function POGSDashboard() {
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loading || syncing ? 'animate-spin text-indigo-600' : ''}`} />
               </button>
-              <span className="text-xs text-slate-500 font-medium bg-slate-100 px-2.5 py-1 rounded-full">
-                {config.start_date && config.end_date 
-                  ? `${formatDateStr(config.start_date)} ~ ${formatDateStr(config.end_date)}` 
-                  : config.period || '시즌'}
+              <span className="text-[11px] text-slate-500 font-medium bg-slate-100 px-2 py-1 rounded-md">
+                {currentSeason ? `${formatDateStr(currentSeason.start_date)} ~ ${formatDateStr(currentSeason.end_date)}` : ''}
               </span>
             </div>
           </div>
 
-          <h1 className="text-lg font-bold text-slate-900 leading-snug">
-            {config.purpose || '목적을 설정해주세요'}
-          </h1>
-
-          <div className="mt-4 bg-slate-100 p-3 rounded-xl border border-slate-100 flex items-center justify-between">
-            <div className="text-xs text-slate-600 font-medium">오늘의 실천 달성도</div>
-            <div className="flex items-center gap-2">
-              <div className="w-24 bg-slate-200 h-2 rounded-full overflow-hidden">
-                <div 
-                  className="bg-indigo-600 h-full transition-all duration-300"
-                  style={{ width: `${dailyStandards.length ? (dailyCompletedCount / dailyStandards.length) * 100 : 0}%` }}
-                />
-              </div>
-              <span className="text-xs font-bold text-indigo-700">
-                {dailyCompletedCount}/{dailyStandards.length}
-              </span>
+          {/* 현재 시즌의 Purpose */}
+          <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-600 mb-1 flex items-center gap-1">
+              <Sparkles className="w-3 h-3" /> Purpose (인생의 중심 목적)
             </div>
+            <h1 className="text-base font-bold text-slate-900 leading-snug">
+              {currentSeason?.purpose || '등록된 목적이 없습니다.'}
+            </h1>
+          </div>
+
+          {/* 뷰 전환 탭: 실천 체크리스트 vs 시즌 회고 & 통계 */}
+          <div className="grid grid-cols-2 gap-2 mt-3">
+            <button
+              onClick={() => setMainView('checklist')}
+              className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                mainView === 'checklist' 
+                  ? 'bg-indigo-600 text-white shadow-xs' 
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <ListTodo className="w-4 h-4" /> 실천 체크리스트
+            </button>
+            <button
+              onClick={() => setMainView('analytics')}
+              className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                mainView === 'analytics' 
+                  ? 'bg-indigo-600 text-white shadow-xs' 
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4" /> 시즌 점검 & 회고
+            </button>
           </div>
         </div>
       </header>
 
-      {/* 2. 네비게이션 탭 */}
+      {/* 2. 메인 컨텐츠 영역 */}
       <div className="max-w-md mx-auto px-4 mt-4">
-        <nav className="flex bg-slate-200/80 p-1 rounded-xl gap-1 text-xs font-medium text-slate-600">
-          {[
-            { key: 'daily', label: '오늘의 실천' },
-            { key: 'weekly', label: '이번 주' },
-            { key: 'monthly', label: '이번 달' },
-            { key: 'long_term', label: '장기 과제' },
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key as any)}
-              className={`flex-1 py-2 rounded-lg text-center transition-all ${
-                activeTab === tab.key
-                  ? 'bg-white text-indigo-600 font-bold shadow-xs'
-                  : 'hover:text-slate-900'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-
-        {/* 3. 체크리스트 목록 */}
-        <section className="mt-4 space-y-3">
-          {loading ? (
-            <div className="py-20 flex flex-col items-center justify-center text-slate-400 gap-2">
-              <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
-              <p className="text-xs font-medium">데이터를 불러오는 중...</p>
-            </div>
-          ) : currentStandards.length === 0 ? (
-            <div className="py-16 text-center text-xs text-slate-400 border border-dashed rounded-2xl p-6">
-              등록된 항목이 없습니다.<br />우측 하단 '+' 버튼을 눌러 새 실천 항목을 등록해보세요.
-            </div>
-          ) : (
-            currentStandards.map((std) => {
-              const todayLog = logs.find(
-                l => String(l.standard_id) === String(std.id) && String(l.date).startsWith(todayStr)
-              );
-              const isCompleted = todayLog?.is_completed || false;
-              const failReason = todayLog?.reason_if_failed;
-
-              return (
-                <div 
-                  key={std.id}
-                  className={`p-4 rounded-2xl bg-white border transition-all ${
-                    isCompleted 
-                      ? 'border-emerald-200 bg-emerald-50/20' 
-                      : 'border-slate-200 shadow-xs'
+        {mainView === 'checklist' ? (
+          <>
+            {/* 주기별 탭 */}
+            <nav className="flex bg-slate-200/80 p-1 rounded-xl gap-1 text-xs font-medium text-slate-600 mb-4">
+              {[
+                { key: 'daily', label: '오늘의 실천' },
+                { key: 'weekly', label: '이번 주' },
+                { key: 'monthly', label: '이번 달' },
+                { key: 'long_term', label: '장기 과제' },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key as any)}
+                  className={`flex-1 py-2 rounded-lg text-center transition-all ${
+                    activeTab === tab.key
+                      ? 'bg-white text-indigo-600 font-bold shadow-xs'
+                      : 'hover:text-slate-900'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <button 
-                      onClick={() => handleToggleComplete(std.id, isCompleted)}
-                      className="mt-0.5 text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
-                    >
-                      {isCompleted ? (
-                        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                      ) : (
-                        <Circle className="w-5 h-5" />
-                      )}
-                    </button>
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                        {std.objective && (
-                          <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                            {std.objective}
-                          </span>
-                        )}
-                        {std.target_days && (
-                          <span className="text-[10px] font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
-                            {std.target_days}
-                          </span>
+            {/* 체크리스트 카드 리스트 */}
+            <section className="space-y-3">
+              {loading ? (
+                <div className="py-20 flex flex-col items-center justify-center text-slate-400 gap-2">
+                  <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
+                  <p className="text-xs font-medium">데이터를 불러오는 중...</p>
+                </div>
+              ) : currentStandards.length === 0 ? (
+                <div className="py-16 text-center text-xs text-slate-400 border border-dashed rounded-2xl p-6 bg-white">
+                  현재 시즌에 등록된 실천 기준이 없습니다.<br />우측 하단 '+' 버튼을 눌러 새 항목을 등록해보세요.
+                </div>
+              ) : (
+                currentStandards.map((std) => {
+                  const todayLog = logs.find(
+                    l => String(l.standard_id) === String(std.id) && String(l.date).startsWith(todayStr)
+                  );
+                  const isCompleted = todayLog?.is_completed || false;
+                  const failReason = todayLog?.reason_if_failed;
+
+                  return (
+                    <div 
+                      key={std.id}
+                      className={`p-4 rounded-2xl bg-white border transition-all ${
+                        isCompleted 
+                          ? 'border-emerald-200 bg-emerald-50/20' 
+                          : 'border-slate-200 shadow-xs'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <button 
+                          onClick={() => handleToggleComplete(std.id, isCompleted)}
+                          className="mt-0.5 text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
+                        >
+                          {isCompleted ? (
+                            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                          ) : (
+                            <Circle className="w-5 h-5" />
+                          )}
+                        </button>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                            {std.objective && (
+                              <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                                {std.objective}
+                              </span>
+                            )}
+                            {std.target_days && (
+                              <span className="text-[10px] font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
+                                {std.target_days}
+                              </span>
+                            )}
+                          </div>
+
+                          <p className={`text-sm font-semibold leading-snug ${
+                            isCompleted ? 'line-through text-slate-400' : 'text-slate-800'
+                          }`}>
+                            {std.standard || '실천 내용 없음'}
+                          </p>
+
+                          {std.goal && (
+                            <p className="text-[11px] text-slate-400 mt-1 truncate">
+                              🎯 {std.goal}
+                            </p>
+                          )}
+
+                          {failReason && (
+                            <div className="mt-2 text-xs bg-rose-50 text-rose-700 p-2 rounded-lg border border-rose-100 flex items-start gap-1.5">
+                              <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                              <span>{failReason}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {!isCompleted && (
+                          <button 
+                            onClick={() => {
+                              setSelectedStandard(std);
+                              setReasonInput(failReason || '');
+                            }}
+                            title="미실천 사유 적기"
+                            className="text-slate-300 hover:text-slate-600 p-1 shrink-0"
+                          >
+                            <MessageSquare className="w-4 h-4" />
+                          </button>
                         )}
                       </div>
-
-                      <p className={`text-sm font-semibold leading-snug ${
-                        isCompleted ? 'line-through text-slate-400' : 'text-slate-800'
-                      }`}>
-                        {std.standard || '실천 내용 없음'}
-                      </p>
-
-                      {std.goal && (
-                        <p className="text-[11px] text-slate-400 mt-1 truncate">
-                          🎯 {std.goal}
-                        </p>
-                      )}
-
-                      {failReason && (
-                        <div className="mt-2 text-xs bg-rose-50 text-rose-700 p-2 rounded-lg border border-rose-100 flex items-start gap-1.5">
-                          <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                          <span>{failReason}</span>
-                        </div>
-                      )}
                     </div>
-
-                    {!isCompleted && (
-                      <button 
-                        onClick={() => {
-                          setSelectedStandard(std);
-                          setReasonInput(failReason || '');
-                        }}
-                        title="미실천 사유 적기"
-                        className="text-slate-300 hover:text-slate-600 p-1 shrink-0"
-                      >
-                        <MessageSquare className="w-4 h-4" />
-                      </button>
-                    )}
+                  );
+                })
+              )}
+            </section>
+          </>
+        ) : (
+          /* 시즌 점검 & 회고(Analytics) 뷰 */
+          <div className="space-y-4">
+            {/* 영역별 종합 실천 현황 */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+              <h3 className="text-xs font-bold text-slate-900 mb-3 flex items-center gap-1.5">
+                <Layers className="w-4 h-4 text-indigo-600" />
+                4대 영역별 누적 실천 현황
+              </h3>
+              
+              <div className="space-y-3">
+                {analyticsData.map((data, idx) => (
+                  <div key={idx} className="space-y-1">
+                    <div className="flex justify-between text-xs font-medium">
+                      <span className="text-slate-700">{data.objective}</span>
+                      <span className="font-bold text-indigo-600">{data.totalCompleted}회 달성</span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-indigo-500 h-full rounded-full transition-all"
+                        style={{ width: `${Math.min(100, data.totalCompleted * 5)}%` }}
+                      />
+                    </div>
                   </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 미실천 사유 & 피드백 모아보기 */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+              <h3 className="text-xs font-bold text-slate-900 mb-3 flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 text-rose-500" />
+                미실천 사유 & 피드백 기록 ({failureLogs.length}건)
+              </h3>
+
+              {failureLogs.length === 0 ? (
+                <p className="text-xs text-slate-400 py-4 text-center">기록된 미실천 피드백이 없습니다.</p>
+              ) : (
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {failureLogs.slice().reverse().map((l, idx) => (
+                    <div key={idx} className="p-2.5 bg-rose-50/60 rounded-xl border border-rose-100 text-xs text-slate-700">
+                      <div className="text-[10px] font-semibold text-rose-600 mb-0.5">{formatDateStr(l.date)}</div>
+                      <div>{l.reason_if_failed}</div>
+                    </div>
+                  ))}
                 </div>
-              );
-            })
-          )}
-        </section>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* 4. 플로팅 추가 버튼 (+) */}
-      <button
-        onClick={() => setIsAddModalOpen(true)}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 active:scale-95 transition-all z-20"
-        title="새 실천 항목 추가"
-      >
-        <Plus className="w-6 h-6" />
-      </button>
+      {/* 3. 플로팅 추가 버튼 (+) */}
+      {mainView === 'checklist' && (
+        <button
+          onClick={() => setIsAddModalOpen(true)}
+          className="fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 active:scale-95 transition-all z-20"
+          title="새 실천 항목 추가"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+      )}
 
-      {/* 5. 새 항목 등록 모달 */}
+      {/* 4. 새 시즌 등록 모달 (새 Purpose 설정) */}
+      {isNewSeasonModalOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-sm font-bold text-slate-900 mb-1">
+              새로운 시즌(기간) 시작하기
+            </h3>
+            <p className="text-xs text-slate-500 mb-3">
+              새로운 시기의 명칭과 중심 목적(Purpose)을 정합니다.
+            </p>
+
+            <form onSubmit={handleCreateSeason} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">시즌 명칭</label>
+                <input 
+                  type="text"
+                  placeholder="예: 2026 하반기 / 새로운 도전기"
+                  value={newSeasonTitle}
+                  onChange={(e) => setNewSeasonTitle(e.target.value)}
+                  className="w-full p-2.5 border border-slate-200 rounded-xl"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">이 시즌의 핵심 목적 (Purpose)</label>
+                <textarea 
+                  rows={2}
+                  placeholder="예: 하나님과의 깊은 동행과 이웃을 섬기는 리더십의 삶"
+                  value={newSeasonPurpose}
+                  onChange={(e) => setNewSeasonPurpose(e.target.value)}
+                  className="w-full p-2.5 border border-slate-200 rounded-xl"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">시작일</label>
+                  <input 
+                    type="date"
+                    value={newSeasonStart}
+                    onChange={(e) => setNewSeasonStart(e.target.value)}
+                    className="w-full p-2 border border-slate-200 rounded-xl"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">종료일</label>
+                  <input 
+                    type="date"
+                    value={newSeasonEnd}
+                    onChange={(e) => setNewSeasonEnd(e.target.value)}
+                    className="w-full p-2 border border-slate-200 rounded-xl"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button 
+                  type="button"
+                  onClick={() => setIsNewSeasonModalOpen(false)}
+                  className="flex-1 py-2.5 font-semibold text-slate-500 bg-slate-100 rounded-xl hover:bg-slate-200"
+                >
+                  취소
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-2.5 font-semibold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700"
+                >
+                  새 시즌 개시
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 5. 실천 항목 추가 모달 */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-sm font-bold text-slate-900 mb-3">
-              새로운 POGS 실천 항목 추가
+              현재 시즌 실천 항목 추가
             </h3>
             
             <form onSubmit={handleAddNewStandard} className="space-y-3 text-xs">
