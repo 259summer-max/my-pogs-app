@@ -128,13 +128,25 @@ export default function POGSDashboard() {
       const data = await res.json();
       if (data.seasons && data.seasons.length > 0) {
         setSeasons(data.seasons);
-        const active = data.seasons.find((s: SeasonItem) => s.is_active === true || String(s.is_active).toUpperCase() === 'TRUE');
+        const active = data.seasons.find((s: any) => s.is_active === true || String(s.is_active).toUpperCase() === 'TRUE');
         if (active) setCurrentSeasonId(active.season_id);
         else setCurrentSeasonId(data.seasons[0].season_id);
       }
       if (data.standards) {
-        // is_active가 비어있거나 명시적 false가 아니면 모두 active로 처리
-        setStandards(data.standards.filter((s: any) => s.is_active === '' || s.is_active === undefined || String(s.is_active).toUpperCase() !== 'FALSE'));
+        // 대소문자 무관하게 필드 자동 매핑
+        const mappedStandards = data.standards.map((s: any) => ({
+          id: s.id ?? s.ID,
+          season_id: s.season_id ?? s.SEASON_ID,
+          objective: s.objective ?? s.Objective ?? s.Objectives ?? s.objectives ?? '',
+          goal: s.goal ?? s.Goal ?? s.GOAL ?? '',
+          standard: s.standard ?? s.Standard ?? s.STANDARD ?? '',
+          frequency: (s.frequency ?? s.Frequency ?? 'daily').toLowerCase(),
+          target_count: s.target_count ?? s.Target_count ?? 1,
+          target_days: s.target_days ?? s.Target_days ?? '',
+          is_active: s.is_active ?? s.Is_active ?? true,
+        }));
+
+        setStandards(mappedStandards.filter((s: any) => s.is_active === '' || s.is_active === undefined || String(s.is_active).toUpperCase() !== 'FALSE'));
       }
       if (data.logs) setLogs(data.logs);
     } catch (err) {
