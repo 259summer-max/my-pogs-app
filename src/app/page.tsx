@@ -16,7 +16,8 @@ import {
   ChevronLeft, 
   ChevronRight, 
   Calendar as CalendarIcon,
-  Filter
+  Filter,
+  Target
 } from 'lucide-react';
 
 interface SeasonItem {
@@ -50,10 +51,10 @@ interface LogItem {
 }
 
 const FREQUENCY_MAP = {
-  daily: { label: '일일 실천', color: 'emerald', border: 'border-l-emerald-500', bg: 'bg-emerald-50', text: 'text-emerald-700', badge: 'bg-emerald-100 text-emerald-800' },
-  weekly: { label: '이번 주', color: 'indigo', border: 'border-l-indigo-500', bg: 'bg-indigo-50', text: 'text-indigo-700', badge: 'bg-indigo-100 text-indigo-800' },
-  monthly: { label: '이번 달', color: 'amber', border: 'border-l-amber-500', bg: 'bg-amber-50', text: 'text-amber-700', badge: 'bg-amber-100 text-amber-800' },
-  long_term: { label: '장기 과제', color: 'purple', border: 'border-l-purple-500', bg: 'bg-purple-50', text: 'text-purple-700', badge: 'bg-purple-100 text-purple-800' },
+  daily: { label: '일일', color: 'emerald', badge: 'bg-emerald-100 text-emerald-800' },
+  weekly: { label: '주간', color: 'indigo', badge: 'bg-indigo-100 text-indigo-800' },
+  monthly: { label: '월간', color: 'amber', badge: 'bg-amber-100 text-amber-800' },
+  long_term: { label: '장기', color: 'purple', badge: 'bg-purple-100 text-purple-800' },
 };
 
 const DAYS_OF_WEEK = ['일', '월', '화', '수', '목', '금', '토'];
@@ -133,7 +134,6 @@ export default function POGSDashboard() {
         else setCurrentSeasonId(data.seasons[0].season_id);
       }
       if (data.standards && Array.isArray(data.standards)) {
-        // 모든 형태의 키 이름(대소문자/단복수/공백)을 완벽 매핑
         const mappedStandards: StandardItem[] = data.standards.map((raw: any) => {
           const findVal = (keys: string[]) => {
             for (const k of keys) {
@@ -355,12 +355,25 @@ export default function POGSDashboard() {
     }
   };
 
-  // 현재 시즌 기준 실천 항목 목록
+  // 현재 시즌 기준 실천 항목 목록 및 필터링
   const seasonStandards = standards.filter(s => !s.season_id || s.season_id === currentSeasonId);
   const filteredStandards = seasonStandards.filter(s => {
     if (filterFrequency === 'all') return true;
     return (s.frequency || 'daily') === filterFrequency;
   });
+
+  // Goal(상위 목표)별로 그룹화
+  const groupedByGoal = filteredStandards.reduce((acc, std) => {
+    const goalKey = std.goal?.trim() || '공통 목표';
+    if (!acc[goalKey]) {
+      acc[goalKey] = {
+        objective: std.objective || '',
+        items: []
+      };
+    }
+    acc[goalKey].items.push(std);
+    return acc;
+  }, {} as Record<string, { objective: string; items: StandardItem[] }>);
 
   // 오늘 요일 확인
   const selectedDayName = getDayName(selectedDate);
@@ -432,7 +445,7 @@ export default function POGSDashboard() {
 
           <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl mb-3">
             <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-600 mb-0.5 flex items-center gap-1">
-              <Sparkles className="w-3 h-3" /> PURPOSE (인생의 중심 목적)
+              <Sparkles className="w-3 h-3" /> PURPOSE (인생 목적)
             </div>
             <h1 className="text-sm font-bold text-slate-900 leading-snug">
               {currentSeason?.purpose || '등록된 목적이 없습니다.'}
@@ -485,7 +498,7 @@ export default function POGSDashboard() {
                 mainView === 'checklist' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
-              <ListTodo className="w-4 h-4" /> 전체 실천 리스트
+              <ListTodo className="w-4 h-4" /> 실천 체크리스트
             </button>
             <button
               onClick={() => setMainView('analytics')}
@@ -529,112 +542,131 @@ export default function POGSDashboard() {
               ))}
             </div>
 
-            {/* 체크리스트 카드 목록 */}
-            <section className="space-y-3">
+            {/* Goal 그룹별 체크리스트 카드 목록 */}
+            <section className="space-y-4">
               {loading ? (
                 <div className="py-20 flex flex-col items-center justify-center text-slate-400 gap-2">
                   <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
                   <p className="text-xs font-medium">실천 데이터를 불러오는 중...</p>
                 </div>
-              ) : filteredStandards.length === 0 ? (
+              ) : Object.keys(groupedByGoal).length === 0 ? (
                 <div className="py-16 text-center text-xs text-slate-400 border border-dashed rounded-2xl p-6 bg-white">
-                  등록된 실천 기준이 없습니다.<br />하단 '+' 버튼으로 새 항목을 추가해보세요.
+                  해당 조건의 실천 기준이 없습니다.<br />하단 '+' 버튼으로 새 항목을 추가해보세요.
                 </div>
               ) : (
-                filteredStandards.map((std) => {
-                  const freq = std.frequency || 'daily';
-                  const config = FREQUENCY_MAP[freq] || FREQUENCY_MAP.daily;
-                  
-                  const logOnDate = logs.find(
-                    l => String(l.standard_id) === String(std.id) && String(l.date).startsWith(selectedDate)
-                  );
-                  const isCompletedOnDate = logOnDate?.is_completed || false;
-                  const failReason = logOnDate?.reason_if_failed;
-                  const weeklyCount = getWeeklyCompletedCount(std.id);
-
-                  // 오늘 요일에 해당하는지 확인
-                  const isDayApplicable = !std.target_days || std.target_days.includes(selectedDayName);
+                Object.entries(groupedByGoal).map(([goalTitle, groupData], gIdx) => {
+                  // 해당 Goal 그룹 내 완료 개수 계산
+                  const groupCompletedCount = groupData.items.filter(std => {
+                    const log = logs.find(l => String(l.standard_id) === String(std.id) && String(l.date).startsWith(selectedDate));
+                    return log?.is_completed;
+                  }).length;
 
                   return (
-                    <div 
-                      key={std.id}
-                      className={`p-4 rounded-2xl bg-white border border-l-4 transition-all ${config.border} ${
-                        isCompletedOnDate 
-                          ? 'border-emerald-200 bg-emerald-50/15' 
-                          : 'border-slate-200 shadow-2xs'
-                      } ${!isDayApplicable && freq === 'daily' ? 'opacity-70' : ''}`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <button 
-                          onClick={() => handleToggleComplete(std.id, isCompletedOnDate)}
-                          className="mt-0.5 text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
-                        >
-                          {isCompletedOnDate ? (
-                            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                          ) : (
-                            <Circle className="w-5 h-5" />
-                          )}
-                        </button>
-
+                    <div key={gIdx} className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+                      {/* Goal 상단 그룹 헤더 (1번만 표시) */}
+                      <div className="bg-slate-50/80 px-4 py-3 border-b border-slate-100 flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
-                          {/* 뱃지 영역 */}
-                          <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${config.badge}`}>
-                              {config.label}
+                          {groupData.objective && (
+                            <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded mr-1.5">
+                              {groupData.objective}
                             </span>
-                            {std.objective && (
-                              <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                                {std.objective}
-                              </span>
-                            )}
-                            {std.target_days && (
-                              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                                isDayApplicable ? 'bg-amber-100 text-amber-800 font-bold' : 'bg-slate-100 text-slate-400'
-                              }`}>
-                                {std.target_days}
-                              </span>
-                            )}
-                            {freq === 'weekly' && (
-                              <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">
-                                이번 주: {weeklyCount}회
-                              </span>
-                            )}
+                          )}
+                          <div className="text-xs font-bold text-slate-900 mt-1 flex items-start gap-1 leading-snug">
+                            <Target className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
+                            <span>{goalTitle}</span>
                           </div>
-
-                          {/* 실천 내용 (Standard) */}
-                          <p className={`text-sm font-semibold leading-snug ${
-                            isCompletedOnDate ? 'line-through text-slate-400' : 'text-slate-800'
-                          }`}>
-                            {std.standard || '실천 내용 없음'}
-                          </p>
-
-                          {/* 상위 목표 (Goal) */}
-                          {std.goal && (
-                            <p className="text-[11px] text-slate-400 mt-1 truncate">
-                              🎯 {std.goal}
-                            </p>
-                          )}
-
-                          {failReason && (
-                            <div className="mt-2 text-xs bg-rose-50 text-rose-700 p-2 rounded-lg border border-rose-100 flex items-start gap-1.5">
-                              <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                              <span>{failReason}</span>
-                            </div>
-                          )}
                         </div>
 
-                        {!isCompletedOnDate && (
-                          <button 
-                            onClick={() => {
-                              setSelectedStandard(std);
-                              setReasonInput(failReason || '');
-                            }}
-                            title="미실천 피드백 작성"
-                            className="text-slate-300 hover:text-slate-600 p-1 shrink-0"
-                          >
-                            <MessageSquare className="w-4 h-4" />
-                          </button>
-                        )}
+                        {/* Goal 그룹 달성도 미니 뱃지 */}
+                        <div className="text-[11px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200 shrink-0">
+                          {groupCompletedCount}/{groupData.items.length}
+                        </div>
+                      </div>
+
+                      {/* 세부 Standard(실천 기준) 목록 */}
+                      <div className="divide-y divide-slate-100">
+                        {groupData.items.map((std) => {
+                          const freq = std.frequency || 'daily';
+                          const config = FREQUENCY_MAP[freq] || FREQUENCY_MAP.daily;
+                          
+                          const logOnDate = logs.find(
+                            l => String(l.standard_id) === String(std.id) && String(l.date).startsWith(selectedDate)
+                          );
+                          const isCompletedOnDate = logOnDate?.is_completed || false;
+                          const failReason = logOnDate?.reason_if_failed;
+                          const weeklyCount = getWeeklyCompletedCount(std.id);
+                          const isDayApplicable = !std.target_days || std.target_days.includes(selectedDayName);
+
+                          return (
+                            <div 
+                              key={std.id}
+                              className={`p-3.5 transition-colors ${
+                                isCompletedOnDate ? 'bg-emerald-50/20' : 'hover:bg-slate-50/50'
+                              } ${!isDayApplicable && freq === 'daily' ? 'opacity-65' : ''}`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <button 
+                                  onClick={() => handleToggleComplete(std.id, isCompletedOnDate)}
+                                  className="mt-0.5 text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
+                                >
+                                  {isCompletedOnDate ? (
+                                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                                  ) : (
+                                    <Circle className="w-5 h-5" />
+                                  )}
+                                </button>
+
+                                <div className="flex-1 min-w-0">
+                                  {/* 뱃지들 */}
+                                  <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${config.badge}`}>
+                                      {config.label}
+                                    </span>
+                                    {std.target_days && (
+                                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                                        isDayApplicable ? 'bg-amber-100 text-amber-800 font-bold' : 'bg-slate-100 text-slate-400'
+                                      }`}>
+                                        {std.target_days}
+                                      </span>
+                                    )}
+                                    {freq === 'weekly' && (
+                                      <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">
+                                        이번 주: {weeklyCount}회
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* 실천 내용 */}
+                                  <p className={`text-sm font-semibold leading-snug ${
+                                    isCompletedOnDate ? 'line-through text-slate-400' : 'text-slate-800'
+                                  }`}>
+                                    {std.standard || '실천 내용 없음'}
+                                  </p>
+
+                                  {failReason && (
+                                    <div className="mt-2 text-xs bg-rose-50 text-rose-700 p-2 rounded-lg border border-rose-100 flex items-start gap-1.5">
+                                      <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                                      <span>{failReason}</span>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {!isCompletedOnDate && (
+                                  <button 
+                                    onClick={() => {
+                                      setSelectedStandard(std);
+                                      setReasonInput(failReason || '');
+                                    }}
+                                    title="미실천 피드백 작성"
+                                    className="text-slate-300 hover:text-slate-600 p-1 shrink-0"
+                                  >
+                                    <MessageSquare className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
