@@ -132,19 +132,30 @@ export default function POGSDashboard() {
         if (active) setCurrentSeasonId(active.season_id);
         else setCurrentSeasonId(data.seasons[0].season_id);
       }
-      if (data.standards) {
-        // 대소문자 무관하게 필드 자동 매핑
-        const mappedStandards = data.standards.map((s: any) => ({
-          id: s.id ?? s.ID,
-          season_id: s.season_id ?? s.SEASON_ID,
-          objective: s.objective ?? s.Objective ?? s.Objectives ?? s.objectives ?? '',
-          goal: s.goal ?? s.Goal ?? s.GOAL ?? '',
-          standard: s.standard ?? s.Standard ?? s.STANDARD ?? '',
-          frequency: (s.frequency ?? s.Frequency ?? 'daily').toLowerCase(),
-          target_count: s.target_count ?? s.Target_count ?? 1,
-          target_days: s.target_days ?? s.Target_days ?? '',
-          is_active: s.is_active ?? s.Is_active ?? true,
-        }));
+      if (data.standards && Array.isArray(data.standards)) {
+        // 모든 형태의 키 이름(대소문자/단복수/공백)을 완벽 매핑
+        const mappedStandards: StandardItem[] = data.standards.map((raw: any) => {
+          const findVal = (keys: string[]) => {
+            for (const k of keys) {
+              if (raw[k] !== undefined && raw[k] !== null && String(raw[k]).trim() !== '') return raw[k];
+              const lowerKey = Object.keys(raw).find(rk => rk.toLowerCase().trim() === k.toLowerCase().trim());
+              if (lowerKey && raw[lowerKey] !== undefined && raw[lowerKey] !== null && String(raw[lowerKey]).trim() !== '') return raw[lowerKey];
+            }
+            return '';
+          };
+
+          return {
+            id: findVal(['id', 'ID', 'no', 'No']) || Math.random().toString(),
+            season_id: findVal(['season_id', 'SEASON_ID']),
+            objective: findVal(['objective', 'objectives', 'Objective', 'Objectives']),
+            goal: findVal(['goal', 'Goal', 'GOAL']),
+            standard: findVal(['standard', 'Standard', 'STANDARD', '실천내용', '기준']),
+            frequency: (findVal(['frequency', 'Frequency']) || 'daily').toLowerCase() as any,
+            target_count: Number(findVal(['target_count', 'Target_count', 'targetCount'])) || 1,
+            target_days: String(findVal(['target_days', 'Target_days', 'targetDays', '요일']) || ''),
+            is_active: findVal(['is_active', 'Is_active', 'isActive']) ?? true,
+          };
+        });
 
         setStandards(mappedStandards.filter((s: any) => s.is_active === '' || s.is_active === undefined || String(s.is_active).toUpperCase() !== 'FALSE'));
       }
@@ -421,7 +432,7 @@ export default function POGSDashboard() {
 
           <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl mb-3">
             <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-600 mb-0.5 flex items-center gap-1">
-              <Sparkles className="w-3 h-3" /> Purpose (인생 목적)
+              <Sparkles className="w-3 h-3" /> PURPOSE (인생의 중심 목적)
             </div>
             <h1 className="text-sm font-bold text-slate-900 leading-snug">
               {currentSeason?.purpose || '등록된 목적이 없습니다.'}
@@ -566,7 +577,7 @@ export default function POGSDashboard() {
                         </button>
 
                         <div className="flex-1 min-w-0">
-                          {/* 뱃지 영역: 주기 색상 뱃지 + 영역 + 요일 */}
+                          {/* 뱃지 영역 */}
                           <div className="flex items-center gap-1.5 flex-wrap mb-1">
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${config.badge}`}>
                               {config.label}
@@ -590,13 +601,14 @@ export default function POGSDashboard() {
                             )}
                           </div>
 
-                          {/* 실천 내용 */}
+                          {/* 실천 내용 (Standard) */}
                           <p className={`text-sm font-semibold leading-snug ${
                             isCompletedOnDate ? 'line-through text-slate-400' : 'text-slate-800'
                           }`}>
                             {std.standard || '실천 내용 없음'}
                           </p>
 
+                          {/* 상위 목표 (Goal) */}
                           {std.goal && (
                             <p className="text-[11px] text-slate-400 mt-1 truncate">
                               🎯 {std.goal}
@@ -691,7 +703,7 @@ export default function POGSDashboard() {
         </button>
       )}
 
-      {/* 4. 새 실천 항목 추가 모달 (요일 원터치 선택 지원) */}
+      {/* 4. 새 실천 항목 추가 모달 */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -750,7 +762,6 @@ export default function POGSDashboard() {
                 </select>
               </div>
 
-              {/* 일일 실천일 경우 요일 다중 선택기 */}
               {newFrequency === 'daily' && (
                 <div>
                   <div className="flex justify-between items-center mb-1.5">
@@ -836,7 +847,7 @@ export default function POGSDashboard() {
                 <label className="block text-slate-600 font-medium mb-1">핵심 목적 (Purpose)</label>
                 <textarea 
                   rows={2}
-                  placeholder="예: 하나님의 메시지(그리스도) 구속 사역에 동행하는 삶"
+                  placeholder="예: 하나님의 구속 사역에 동행하는 삶"
                   value={newSeasonPurpose}
                   onChange={(e) => setNewSeasonPurpose(e.target.value)}
                   className="w-full p-2.5 border border-slate-200 rounded-xl"
