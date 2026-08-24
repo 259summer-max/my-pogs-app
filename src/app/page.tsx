@@ -12,7 +12,10 @@ import {
   Plus,
   BarChart3,
   ListTodo,
-  Layers
+  Layers,
+  ChevronLeft,
+  ChevronRight,
+  Calendar as CalendarIcon
 } from 'lucide-react';
 
 interface SeasonItem {
@@ -45,10 +48,10 @@ interface LogItem {
   season_id?: string;
 }
 
-// 🗓️ 일요일(00:00:00) ~ 토요일(23:59:59) 주간 범위 계산 함수
+// 일요일~토요일 주간 범위 계산
 const getSundayToSaturdayWeekRange = (targetDate: Date = new Date()) => {
   const current = new Date(targetDate);
-  const day = current.getDay(); // 0: 일요일, 1: 월요일 ... 6: 토요일
+  const day = current.getDay();
   
   const sunday = new Date(current);
   sunday.setDate(current.getDate() - day);
@@ -67,6 +70,11 @@ export default function POGSDashboard() {
   const [standards, setStandards] = useState<StandardItem[]>([]);
   const [logs, setLogs] = useState<LogItem[]>([]);
   
+  // 📅 현재 조회 및 기록 중인 날짜 (기본: 오늘)
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    return new Date().toISOString().split('T')[0];
+  });
+
   const [mainView, setMainView] = useState<'checklist' | 'analytics'>('checklist');
   const [activeTab, setActiveTab] = useState<'daily' | 'weekly' | 'monthly' | 'long_term'>('daily');
   const [loading, setLoading] = useState<boolean>(true);
@@ -132,13 +140,20 @@ export default function POGSDashboard() {
 
   const currentSeason = seasons.find(s => s.season_id === currentSeasonId) || seasons[0];
 
-  // 체크 토글 (오늘 기준)
+  // 📅 날짜 이동 핸들러 (하루 전 / 하루 후)
+  const handleShiftDate = (days: number) => {
+    const current = new Date(selectedDate);
+    current.setDate(current.getDate() + days);
+    setSelectedDate(current.toISOString().split('T')[0]);
+  };
+
+  // 체크 토글 (선택된 날짜 기준)
   const handleToggleComplete = async (standardId: string | number, currentCompleted: boolean) => {
     const nextStatus = !currentCompleted;
     setSyncing(true);
 
     const existingLogIdx = logs.findIndex(
-      l => String(l.standard_id) === String(standardId) && String(l.date).startsWith(todayStr)
+      l => String(l.standard_id) === String(standardId) && String(l.date).startsWith(selectedDate)
     );
 
     let updatedLogs = [...logs];
@@ -147,7 +162,7 @@ export default function POGSDashboard() {
     } else {
       updatedLogs.push({
         log_id: Date.now().toString(),
-        date: todayStr,
+        date: selectedDate,
         standard_id: standardId,
         is_completed: nextStatus,
         season_id: currentSeasonId
@@ -161,7 +176,7 @@ export default function POGSDashboard() {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: 'LOG_CHECK',
-          date: todayStr,
+          date: selectedDate,
           standard_id: standardId,
           is_completed: nextStatus,
           reason_if_failed: '',
@@ -175,14 +190,14 @@ export default function POGSDashboard() {
     }
   };
 
-  // 피드백 저장
+  // 피드백 저장 (선택된 날짜 기준)
   const handleSaveReason = async () => {
     if (!selectedStandard) return;
     setSyncing(true);
 
     const standardId = selectedStandard.id;
     const existingLogIdx = logs.findIndex(
-      l => String(l.standard_id) === String(standardId) && String(l.date).startsWith(todayStr)
+      l => String(l.standard_id) === String(standardId) && String(l.date).startsWith(selectedDate)
     );
 
     let updatedLogs = [...logs];
@@ -195,7 +210,7 @@ export default function POGSDashboard() {
     } else {
       updatedLogs.push({
         log_id: Date.now().toString(),
-        date: todayStr,
+        date: selectedDate,
         standard_id: standardId,
         is_completed: false,
         reason_if_failed: reasonInput,
@@ -210,7 +225,7 @@ export default function POGSDashboard() {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: 'LOG_CHECK',
-          date: todayStr,
+          date: selectedDate,
           standard_id: standardId,
           is_completed: false,
           reason_if_failed: reasonInput,
@@ -304,19 +319,18 @@ export default function POGSDashboard() {
     }
   };
 
-  // 현재 시즌 기준 실천 항목들
   const seasonStandards = standards.filter(s => !s.season_id || s.season_id === currentSeasonId);
   const currentStandards = seasonStandards.filter(s => (s.frequency || 'daily') === activeTab);
   
-  // 일일 실천 달성률
+  // 선택된 날짜 기준 실천 달성률
   const dailyStandards = seasonStandards.filter(s => (s.frequency || 'daily') === 'daily');
   const dailyCompletedCount = dailyStandards.filter(s => {
-    const log = logs.find(l => String(l.standard_id) === String(s.id) && String(l.date).startsWith(todayStr));
+    const log = logs.find(l => String(l.standard_id) === String(s.id) && String(l.date).startsWith(selectedDate));
     return log?.is_completed;
   }).length;
 
-  // 🗓️ 이번 주(일요일~토요일) 실천 계산 로직
-  const { sunday, saturday } = getSundayToSaturdayWeekRange();
+  // 선택된 날짜가 속한 주(일~토) 카운팅
+  const { sunday, saturday } = getSundayToSaturdayWeekRange(new Date(selectedDate));
   const getWeeklyCompletedCount = (stdId: string | number) => {
     return logs.filter(l => {
       if (String(l.standard_id) !== String(stdId) || !l.is_completed) return false;
@@ -325,7 +339,7 @@ export default function POGSDashboard() {
     }).length;
   };
 
-  // 통계 리포트 데이터 산출
+  // 통계 리포트 데이터
   const objectives = ['하나님과의 관계', '자기 자신과의 관계', '공동체와의 관계', '세상과의 관계'];
   const analyticsData = objectives.map(obj => {
     const objStandards = seasonStandards.filter(s => s.objective === obj);
@@ -340,12 +354,14 @@ export default function POGSDashboard() {
 
   const failureLogs = logs.filter(l => l.reason_if_failed && l.reason_if_failed.trim() !== '');
 
+  const isSelectedToday = selectedDate === todayStr;
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 pb-24 font-sans">
       {/* 1. 최상단 시즌 & Purpose 헤더 */}
-      <header className="bg-white border-b border-slate-200 px-5 pt-6 pb-5 sticky top-0 z-10 shadow-xs">
+      <header className="bg-white border-b border-slate-200 px-5 pt-6 pb-4 sticky top-0 z-10 shadow-xs">
         <div className="max-w-md mx-auto">
-          {/* 상단 컨트롤러: 시즌 선택 드롭다운 & 새 시즌 버튼 */}
+          {/* 상단 컨트롤러 */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <select 
@@ -383,18 +399,61 @@ export default function POGSDashboard() {
             </div>
           </div>
 
-          {/* 현재 시즌의 Purpose */}
-          <div className="bg-slate-50 border border-slate-100 p-3.5 rounded-2xl">
-            <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-600 mb-1 flex items-center gap-1">
+          {/* 현재 시즌 Purpose */}
+          <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl mb-3">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-600 mb-0.5 flex items-center gap-1">
               <Sparkles className="w-3 h-3" /> Purpose (인생의 중심 목적)
             </div>
-            <h1 className="text-base font-bold text-slate-900 leading-snug">
+            <h1 className="text-sm font-bold text-slate-900 leading-snug">
               {currentSeason?.purpose || '등록된 목적이 없습니다.'}
             </h1>
           </div>
 
-          {/* 뷰 전환 탭: 실천 체크리스트 vs 시즌 회고 & 통계 */}
-          <div className="grid grid-cols-2 gap-2 mt-3">
+          {/* 📅 날짜 네비게이터 (소급 기록 기능) */}
+          {mainView === 'checklist' && (
+            <div className="bg-indigo-50/70 border border-indigo-100 p-2 rounded-xl flex items-center justify-between mb-3">
+              <button 
+                onClick={() => handleShiftDate(-1)} 
+                className="p-1 rounded-lg hover:bg-white text-indigo-700 transition-colors"
+                title="하루 전으로 이동"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <div className="flex items-center gap-2">
+                <CalendarIcon className="w-3.5 h-3.5 text-indigo-600" />
+                <input 
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="text-xs font-bold text-indigo-950 bg-transparent border-0 focus:outline-none cursor-pointer"
+                />
+                {isSelectedToday ? (
+                  <span className="text-[10px] font-bold text-indigo-600 bg-white px-2 py-0.5 rounded-full shadow-2xs">
+                    오늘
+                  </span>
+                ) : (
+                  <button 
+                    onClick={() => setSelectedDate(todayStr)}
+                    className="text-[10px] font-bold text-white bg-indigo-600 px-2 py-0.5 rounded-full hover:bg-indigo-700 transition-colors"
+                  >
+                    오늘로 복귀
+                  </button>
+                )}
+              </div>
+
+              <button 
+                onClick={() => handleShiftDate(1)} 
+                className="p-1 rounded-lg hover:bg-white text-indigo-700 transition-colors"
+                title="다음 날로 이동"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* 뷰 전환 탭 */}
+          <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => setMainView('checklist')}
               className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
@@ -445,6 +504,26 @@ export default function POGSDashboard() {
               ))}
             </nav>
 
+            {/* 선택 날짜 달성도 게이지 */}
+            {activeTab === 'daily' && (
+              <div className="mb-4 bg-white p-3 rounded-2xl border border-slate-200 flex items-center justify-between shadow-2xs">
+                <div className="text-xs text-slate-600 font-medium">
+                  {formatDateStr(selectedDate)} 실천율
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
+                    <div 
+                      className="bg-indigo-600 h-full transition-all duration-300"
+                      style={{ width: `${dailyStandards.length ? (dailyCompletedCount / dailyStandards.length) * 100 : 0}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-bold text-indigo-700">
+                    {dailyCompletedCount}/{dailyStandards.length}
+                  </span>
+                </div>
+              </div>
+            )}
+
             {/* 체크리스트 카드 리스트 */}
             <section className="space-y-3">
               {loading ? (
@@ -458,28 +537,28 @@ export default function POGSDashboard() {
                 </div>
               ) : (
                 currentStandards.map((std) => {
-                  const todayLog = logs.find(
-                    l => String(l.standard_id) === String(std.id) && String(l.date).startsWith(todayStr)
+                  const logOnDate = logs.find(
+                    l => String(l.standard_id) === String(std.id) && String(l.date).startsWith(selectedDate)
                   );
-                  const isCompletedToday = todayLog?.is_completed || false;
-                  const failReason = todayLog?.reason_if_failed;
+                  const isCompletedOnDate = logOnDate?.is_completed || false;
+                  const failReason = logOnDate?.reason_if_failed;
                   const weeklyCount = getWeeklyCompletedCount(std.id);
 
                   return (
                     <div 
                       key={std.id}
                       className={`p-4 rounded-2xl bg-white border transition-all ${
-                        isCompletedToday 
+                        isCompletedOnDate 
                           ? 'border-emerald-200 bg-emerald-50/20' 
                           : 'border-slate-200 shadow-xs'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <button 
-                          onClick={() => handleToggleComplete(std.id, isCompletedToday)}
+                          onClick={() => handleToggleComplete(std.id, isCompletedOnDate)}
                           className="mt-0.5 text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
                         >
-                          {isCompletedToday ? (
+                          {isCompletedOnDate ? (
                             <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                           ) : (
                             <Circle className="w-5 h-5" />
@@ -495,7 +574,7 @@ export default function POGSDashboard() {
                             )}
                             {std.frequency === 'weekly' && (
                               <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
-                                이번 주 (일~토): {weeklyCount}회 실천
+                                해당 주간 (일~토): {weeklyCount}회 실천
                               </span>
                             )}
                             {std.target_days && (
@@ -506,7 +585,7 @@ export default function POGSDashboard() {
                           </div>
 
                           <p className={`text-sm font-semibold leading-snug ${
-                            isCompletedToday ? 'line-through text-slate-400' : 'text-slate-800'
+                            isCompletedOnDate ? 'line-through text-slate-400' : 'text-slate-800'
                           }`}>
                             {std.standard || '실천 내용 없음'}
                           </p>
@@ -525,7 +604,7 @@ export default function POGSDashboard() {
                           )}
                         </div>
 
-                        {!isCompletedToday && (
+                        {!isCompletedOnDate && (
                           <button 
                             onClick={() => {
                               setSelectedStandard(std);
@@ -594,7 +673,7 @@ export default function POGSDashboard() {
         )}
       </div>
 
-      {/* 3. 플로팅 추가 버튼 (+) */}
+      {/* 4. 플로팅 추가 버튼 (+) */}
       {mainView === 'checklist' && (
         <button
           onClick={() => setIsAddModalOpen(true)}
@@ -605,7 +684,7 @@ export default function POGSDashboard() {
         </button>
       )}
 
-      {/* 4. 새 시즌 등록 모달 (새 Purpose 설정) */}
+      {/* 5. 새 시즌 등록 모달 */}
       {isNewSeasonModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -684,7 +763,7 @@ export default function POGSDashboard() {
         </div>
       )}
 
-      {/* 5. 실천 항목 추가 모달 */}
+      {/* 6. 실천 항목 추가 모달 */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -778,12 +857,12 @@ export default function POGSDashboard() {
         </div>
       )}
 
-      {/* 6. 미실천 사유 모달 */}
+      {/* 7. 미실천 사유 모달 */}
       {selectedStandard && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl">
             <h3 className="text-sm font-bold text-slate-900 mb-1">
-              미실천 피드백 기록
+              미실천 피드백 기록 ({formatDateStr(selectedDate)})
             </h3>
             <p className="text-xs text-slate-500 mb-3 truncate">
               {selectedStandard.standard}
@@ -792,7 +871,7 @@ export default function POGSDashboard() {
               rows={3}
               value={reasonInput}
               onChange={(e) => setReasonInput(e.target.value)}
-              placeholder="오늘 실천하지 못한 사유나 점검 노트를 적어주세요..."
+              placeholder="해당 일자에 실천하지 못한 사유나 점검 노트를 적어주세요..."
               className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
             <div className="flex gap-2 mt-3">
