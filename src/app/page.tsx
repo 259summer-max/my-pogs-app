@@ -19,7 +19,8 @@ import {
   Filter,
   Target,
   Edit2,
-  Trash2
+  EyeOff,
+  RotateCcw
 } from 'lucide-react';
 
 interface SeasonItem {
@@ -83,7 +84,7 @@ export default function POGSDashboard() {
   
   const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [mainView, setMainView] = useState<'checklist' | 'analytics'>('checklist');
-  const [filterFrequency, setFilterFrequency] = useState<'all' | 'daily' | 'weekly' | 'monthly' | 'long_term'>('all');
+  const [filterFrequency, setFilterFrequency] = useState<'all' | 'daily' | 'weekly' | 'monthly' | 'long_term' | 'hidden'>('all');
   const [loading, setLoading] = useState<boolean>(true);
   const [syncing, setSyncing] = useState<boolean>(false);
 
@@ -98,6 +99,7 @@ export default function POGSDashboard() {
   const [editObjective, setEditObjective] = useState('하나님과의 관계');
   const [editFrequency, setEditFrequency] = useState<'daily' | 'weekly' | 'monthly' | 'long_term'>('daily');
   const [editDays, setEditDays] = useState<string[]>([]);
+  const [editIsActive, setEditIsActive] = useState<boolean>(true);
 
   // 실천 항목 추가 모달 상태
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -154,6 +156,9 @@ export default function POGSDashboard() {
             return '';
           };
 
+          const activeRaw = findVal(['is_active', 'Is_active', 'isActive']);
+          const isActive = activeRaw === '' || activeRaw === undefined ? true : (String(activeRaw).toUpperCase() !== 'FALSE' && activeRaw !== false);
+
           return {
             id: findVal(['id', 'ID', 'no', 'No']) || Math.random().toString(),
             season_id: findVal(['season_id', 'SEASON_ID']),
@@ -163,11 +168,11 @@ export default function POGSDashboard() {
             frequency: (findVal(['frequency', 'Frequency']) || 'daily').toLowerCase() as any,
             target_count: Number(findVal(['target_count', 'Target_count', 'targetCount'])) || 1,
             target_days: String(findVal(['target_days', 'Target_days', 'targetDays', '요일']) || ''),
-            is_active: findVal(['is_active', 'Is_active', 'isActive']) ?? true,
+            is_active: isActive,
           };
         });
 
-        setStandards(mappedStandards.filter((s: any) => s.is_active === '' || s.is_active === undefined || String(s.is_active).toUpperCase() !== 'FALSE'));
+        setStandards(mappedStandards);
       }
       if (data.logs) setLogs(data.logs);
     } catch (err) {
@@ -281,11 +286,10 @@ export default function POGSDashboard() {
     }
   };
 
-  // 특정 Goal 밑에 바로 추가하기 위한 프리셋 열기
   const handleOpenAddForGoal = (goal: string, obj: string, defaultFreq: 'daily' | 'weekly' | 'monthly' | 'long_term' = 'daily') => {
     setNewGoal(goal === '공통 목표' ? '' : goal);
     setNewObjective(obj || '하나님과의 관계');
-    setNewFrequency(filterFrequency === 'all' ? defaultFreq : filterFrequency);
+    setNewFrequency(filterFrequency === 'all' || filterFrequency === 'hidden' ? defaultFreq : filterFrequency);
     setIsAddModalOpen(true);
   };
 
@@ -341,6 +345,7 @@ export default function POGSDashboard() {
     setEditGoalText(std.goal || '');
     setEditObjective(std.objective || '하나님과의 관계');
     setEditFrequency(std.frequency || 'daily');
+    setEditIsActive(std.is_active === true || String(std.is_active).toUpperCase() === 'TRUE');
     const daysArr = std.target_days ? std.target_days.split(',').map(d => d.trim()).filter(Boolean) : [];
     setEditDays(daysArr);
   };
@@ -362,7 +367,8 @@ export default function POGSDashboard() {
           goal: editGoalText,
           objective: editObjective,
           frequency: editFrequency,
-          target_days: targetDaysString
+          target_days: targetDaysString,
+          is_active: editIsActive
         };
       }
       return s;
@@ -383,7 +389,7 @@ export default function POGSDashboard() {
           objective: editObjective,
           frequency: editFrequency,
           target_days: targetDaysString,
-          is_active: true
+          is_active: editIsActive
         })
       });
       fetchData();
@@ -394,12 +400,11 @@ export default function POGSDashboard() {
     }
   };
 
-  // 🗑️ 실천 항목 숨기기 / 비활성화
-  const handleDeactivateStandard = async (stdId: string | number) => {
-    if (!confirm('이 실천 항목을 이번 시즌에서 숨기시겠습니까?')) return;
+  // 🔄 항목 즉시 활성화(복원) / 숨김 토글
+  const handleToggleActiveState = async (stdId: string | number, nextActive: boolean) => {
     setSyncing(true);
-    setStandards(prev => prev.filter(s => s.id !== stdId));
-    setEditingStandard(null);
+    setStandards(prev => prev.map(s => s.id === stdId ? { ...s, is_active: nextActive } : s));
+    if (editingStandard) setEditingStandard(null);
 
     try {
       await fetch(API_URL, {
@@ -408,12 +413,12 @@ export default function POGSDashboard() {
         body: JSON.stringify({
           action: 'UPDATE_STANDARD',
           id: stdId,
-          is_active: false
+          is_active: nextActive
         })
       });
       fetchData();
     } catch (err) {
-      console.error('항목 비활성화 실패:', err);
+      console.error('상태 변경 실패:', err);
     } finally {
       setSyncing(false);
     }
@@ -466,9 +471,17 @@ export default function POGSDashboard() {
     }
   };
 
-  // 현재 시즌 기준 실천 항목 목록 및 필터링
+  // 현재 시즌 기준 실천 항목 목록
   const seasonStandards = standards.filter(s => !s.season_id || s.season_id === currentSeasonId);
+  
+  // 숨김 항목 수 계산
+  const hiddenCount = seasonStandards.filter(s => s.is_active === false || String(s.is_active).toUpperCase() === 'FALSE').length;
+
+  // 필터링 적용
   const filteredStandards = seasonStandards.filter(s => {
+    const isActive = s.is_active === true || String(s.is_active).toUpperCase() === 'TRUE';
+    if (filterFrequency === 'hidden') return !isActive;
+    if (!isActive) return false; // 일반 필터에서는 활성화된 항목만 표시
     if (filterFrequency === 'all') return true;
     return (s.frequency || 'daily') === filterFrequency;
   });
@@ -501,8 +514,9 @@ export default function POGSDashboard() {
 
   // 4대 영역별 통계
   const objectives = ['하나님과의 관계', '자기 자신과의 관계', '공동체와의 관계', '세상과의 관계'];
+  const activeStandards = seasonStandards.filter(s => s.is_active === true || String(s.is_active).toUpperCase() === 'TRUE');
   const analyticsData = objectives.map(obj => {
-    const objStandards = seasonStandards.filter(s => s.objective === obj);
+    const objStandards = activeStandards.filter(s => s.objective === obj);
     const objStandardIds = objStandards.map(s => String(s.id));
     const completedLogsCount = logs.filter(l => objStandardIds.includes(String(l.standard_id)) && l.is_completed).length;
     return {
@@ -627,7 +641,7 @@ export default function POGSDashboard() {
       <div className="max-w-md mx-auto px-4 mt-4">
         {mainView === 'checklist' ? (
           <>
-            {/* 주기별 간편 필터 칩 */}
+            {/* 주기별 간편 필터 칩 + 숨김 탭 */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-3 scrollbar-none text-xs">
               <span className="text-slate-400 text-[11px] font-semibold flex items-center gap-0.5 shrink-0 pr-1">
                 <Filter className="w-3 h-3" /> 보기:
@@ -651,7 +665,34 @@ export default function POGSDashboard() {
                   {f.label}
                 </button>
               ))}
+
+              {/* 👁️‍🗨️ 숨김 항목 모아보기 탭 */}
+              {hiddenCount > 0 && (
+                <button
+                  onClick={() => setFilterFrequency('hidden')}
+                  className={`px-3 py-1 rounded-full text-xs font-bold shrink-0 transition-all flex items-center gap-1 ${
+                    filterFrequency === 'hidden'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100'
+                  }`}
+                >
+                  <EyeOff className="w-3 h-3" /> 숨김 ({hiddenCount})
+                </button>
+              )}
             </div>
+
+            {/* 숨김 필터 안내 문구 */}
+            {filterFrequency === 'hidden' && (
+              <div className="bg-rose-50 border border-rose-100 rounded-xl p-3 mb-4 text-xs text-rose-800 flex items-center justify-between">
+                <span>현재 일시 중단(숨김)된 항목들입니다.</span>
+                <button
+                  onClick={() => setFilterFrequency('all')}
+                  className="font-bold underline text-rose-900 ml-2 shrink-0"
+                >
+                  전체 보기로 복귀
+                </button>
+              </div>
+            )}
 
             {/* Goal 그룹별 카드 목록 */}
             <section className="space-y-4">
@@ -662,7 +703,8 @@ export default function POGSDashboard() {
                 </div>
               ) : Object.keys(groupedByGoal).length === 0 ? (
                 <div className="py-16 text-center text-xs text-slate-400 border border-dashed rounded-2xl p-6 bg-white">
-                  해당 조건의 실천 기준이 없습니다.<br />하단 '+' 버튼으로 새 항목을 추가해보세요.
+                  {filterFrequency === 'hidden' ? '숨겨진 실천 항목이 없습니다.' : '해당 조건의 실천 기준이 없습니다.'}<br />
+                  {filterFrequency !== 'hidden' && "하단 '+' 버튼으로 새 항목을 추가해보세요."}
                 </div>
               ) : (
                 Object.entries(groupedByGoal).map(([goalTitle, groupData], gIdx) => {
@@ -673,7 +715,7 @@ export default function POGSDashboard() {
 
                   return (
                     <div key={gIdx} className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-                      {/* Goal 헤더 + 빠른 항목 추가 버튼 */}
+                      {/* Goal 헤더 */}
                       <div className="bg-slate-50/80 px-4 py-3 border-b border-slate-100 flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
                           {groupData.objective && (
@@ -687,18 +729,20 @@ export default function POGSDashboard() {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            onClick={() => handleOpenAddForGoal(goalTitle, groupData.objective)}
-                            title="이 목표에 실천 기준 바로 추가"
-                            className="text-[11px] font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-lg flex items-center gap-0.5 transition-colors"
-                          >
-                            <Plus className="w-3 h-3" /> 추가
-                          </button>
-                          <div className="text-[11px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200">
-                            {groupCompletedCount}/{groupData.items.length}
+                        {filterFrequency !== 'hidden' && (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() => handleOpenAddForGoal(goalTitle, groupData.objective)}
+                              title="이 목표에 실천 기준 바로 추가"
+                              className="text-[11px] font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-lg flex items-center gap-0.5 transition-colors"
+                            >
+                              <Plus className="w-3 h-3" /> 추가
+                            </button>
+                            <div className="text-[11px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200">
+                              {groupCompletedCount}/{groupData.items.length}
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
 
                       {/* 세부 Standard(실천 기준) 목록 */}
@@ -706,6 +750,7 @@ export default function POGSDashboard() {
                         {groupData.items.map((std) => {
                           const freq = std.frequency || 'daily';
                           const config = FREQUENCY_MAP[freq] || FREQUENCY_MAP.daily;
+                          const isItemActive = std.is_active === true || String(std.is_active).toUpperCase() === 'TRUE';
                           
                           const logOnDate = logs.find(
                             l => String(l.standard_id) === String(std.id) && String(l.date).startsWith(selectedDate)
@@ -720,19 +765,27 @@ export default function POGSDashboard() {
                               key={std.id}
                               className={`p-3.5 transition-colors ${
                                 isCompletedOnDate ? 'bg-emerald-50/20' : 'hover:bg-slate-50/50'
-                              } ${!isDayApplicable && freq === 'daily' ? 'opacity-65' : ''}`}
+                              } ${!isDayApplicable && freq === 'daily' && isItemActive ? 'opacity-65' : ''} ${
+                                !isItemActive ? 'bg-slate-50/70' : ''
+                              }`}
                             >
                               <div className="flex items-start justify-between gap-3">
-                                <button 
-                                  onClick={() => handleToggleComplete(std.id, isCompletedOnDate)}
-                                  className="mt-0.5 text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
-                                >
-                                  {isCompletedOnDate ? (
-                                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                                  ) : (
-                                    <Circle className="w-5 h-5" />
-                                  )}
-                                </button>
+                                {isItemActive ? (
+                                  <button 
+                                    onClick={() => handleToggleComplete(std.id, isCompletedOnDate)}
+                                    className="mt-0.5 text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
+                                  >
+                                    {isCompletedOnDate ? (
+                                      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                                    ) : (
+                                      <Circle className="w-5 h-5" />
+                                    )}
+                                  </button>
+                                ) : (
+                                  <div className="mt-0.5 text-slate-300 shrink-0">
+                                    <EyeOff className="w-4 h-4" />
+                                  </div>
+                                )}
 
                                 <div className="flex-1 min-w-0">
                                   {/* 뱃지들 */}
@@ -747,7 +800,7 @@ export default function POGSDashboard() {
                                         {std.target_days}
                                       </span>
                                     )}
-                                    {freq === 'weekly' && (
+                                    {freq === 'weekly' && isItemActive && (
                                       <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">
                                         이번 주: {weeklyCount}회
                                       </span>
@@ -757,7 +810,7 @@ export default function POGSDashboard() {
                                   {/* 실천 내용 */}
                                   <p className={`text-sm font-semibold leading-snug ${
                                     isCompletedOnDate ? 'line-through text-slate-400' : 'text-slate-800'
-                                  }`}>
+                                  } ${!isItemActive ? 'text-slate-400' : ''}`}>
                                     {std.standard || '실천 내용 없음'}
                                   </p>
 
@@ -770,26 +823,39 @@ export default function POGSDashboard() {
                                 </div>
 
                                 <div className="flex items-center gap-1 shrink-0">
-                                  {/* ✏️ 수정 버튼 */}
-                                  <button 
-                                    onClick={() => handleOpenEdit(std)}
-                                    title="실천 내용 수정"
-                                    className="text-slate-300 hover:text-indigo-600 p-1 transition-colors"
-                                  >
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </button>
-
-                                  {!isCompletedOnDate && (
-                                    <button 
-                                      onClick={() => {
-                                        setSelectedStandard(std);
-                                        setReasonInput(failReason || '');
-                                      }}
-                                      title="미실천 피드백 작성"
-                                      className="text-slate-300 hover:text-slate-600 p-1 transition-colors"
+                                  {/* 🔄 숨김 모드일 때는 즉시 복원(되살리기) 버튼 표시 */}
+                                  {!isItemActive ? (
+                                    <button
+                                      onClick={() => handleToggleActiveState(std.id, true)}
+                                      className="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors"
+                                      title="실천 리스트로 다시 복원"
                                     >
-                                      <MessageSquare className="w-3.5 h-3.5" />
+                                      <RotateCcw className="w-3.5 h-3.5" /> 복원
                                     </button>
+                                  ) : (
+                                    <>
+                                      {/* ✏️ 수정 버튼 */}
+                                      <button 
+                                        onClick={() => handleOpenEdit(std)}
+                                        title="실천 내용 수정"
+                                        className="text-slate-300 hover:text-indigo-600 p-1 transition-colors"
+                                      >
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                      </button>
+
+                                      {!isCompletedOnDate && (
+                                        <button 
+                                          onClick={() => {
+                                            setSelectedStandard(std);
+                                            setReasonInput(failReason || '');
+                                          }}
+                                          title="미실천 피드백 작성"
+                                          className="text-slate-300 hover:text-slate-600 p-1 transition-colors"
+                                        >
+                                          <MessageSquare className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
+                                    </>
                                   )}
                                 </div>
                               </div>
@@ -867,7 +933,7 @@ export default function POGSDashboard() {
         </button>
       )}
 
-      {/* 4. 실천 항목 수정 모달 (✏️) */}
+      {/* 4. 실천 항목 수정 모달 (✏️ + 활성/숨김 토글 스위치) */}
       {editingStandard && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -875,12 +941,18 @@ export default function POGSDashboard() {
               <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1">
                 <Edit2 className="w-4 h-4 text-indigo-600" /> 실천 기준 수정
               </h3>
+              
+              {/* 활성 / 숨김 토글 버튼 */}
               <button
                 type="button"
-                onClick={() => handleDeactivateStandard(editingStandard.id)}
-                className="text-[11px] text-rose-500 hover:text-rose-700 font-medium flex items-center gap-0.5 bg-rose-50 px-2 py-1 rounded-lg"
+                onClick={() => setEditIsActive(!editIsActive)}
+                className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors ${
+                  editIsActive 
+                    ? 'bg-rose-50 text-rose-600 hover:bg-rose-100' 
+                    : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+                }`}
               >
-                <Trash2 className="w-3 h-3" /> 항목 숨기기
+                {editIsActive ? <><EyeOff className="w-3 h-3" /> 항목 숨기기</> : <><RotateCcw className="w-3 h-3" /> 다시 활성화</>}
               </button>
             </div>
             
