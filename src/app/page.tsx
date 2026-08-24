@@ -8,7 +8,8 @@ import {
   AlertCircle, 
   MessageSquare, 
   RefreshCw, 
-  Loader2 
+  Loader2,
+  Plus
 } from 'lucide-react';
 
 interface StandardItem {
@@ -48,8 +49,17 @@ export default function POGSDashboard() {
   const [loading, setLoading] = useState<boolean>(true);
   const [syncing, setSyncing] = useState<boolean>(false);
 
+  // 미실천 사유 작성 모달
   const [selectedStandard, setSelectedStandard] = useState<StandardItem | null>(null);
   const [reasonInput, setReasonInput] = useState('');
+
+  // 어플 내 신규 항목 추가 모달
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [newObjective, setNewObjective] = useState('하나님과의 관계');
+  const [newGoal, setNewGoal] = useState('');
+  const [newStandard, setNewStandard] = useState('');
+  const [newFrequency, setNewFrequency] = useState<'daily' | 'weekly' | 'monthly' | 'long_term'>('daily');
+  const [newTargetDays, setNewTargetDays] = useState('');
 
   const API_URL = process.env.NEXT_PUBLIC_POGS_API_URL || '';
   const todayStr = new Date().toISOString().split('T')[0];
@@ -173,6 +183,51 @@ export default function POGSDashboard() {
     }
   };
 
+  // 어플에서 새 항목 추가 핸들러
+  const handleAddNewStandard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newStandard.trim()) return;
+
+    setSyncing(true);
+    const tempId = Date.now().toString();
+    const newItem: StandardItem = {
+      id: tempId,
+      objective: newObjective,
+      goal: newGoal,
+      standard: newStandard,
+      frequency: newFrequency,
+      target_days: newTargetDays,
+      is_active: true
+    };
+
+    setStandards(prev => [...prev, newItem]);
+    setIsAddModalOpen(false);
+
+    try {
+      await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'ADD_STANDARD',
+          objective: newObjective,
+          goal: newGoal,
+          standard: newStandard,
+          frequency: newFrequency,
+          target_days: newTargetDays
+        })
+      });
+      // 등록 후 리프레시
+      fetchData();
+    } catch (err) {
+      console.error('신규 항목 추가 실패:', err);
+    } finally {
+      setSyncing(false);
+      setNewGoal('');
+      setNewStandard('');
+      setNewTargetDays('');
+    }
+  };
+
   const currentStandards = standards.filter(s => (s.frequency || 'daily') === activeTab);
   const dailyStandards = standards.filter(s => (s.frequency || 'daily') === 'daily');
   const dailyCompletedCount = dailyStandards.filter(s => {
@@ -181,8 +236,8 @@ export default function POGSDashboard() {
   }).length;
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900 pb-20 font-sans">
-      {/* 1. 최상단 목적(Purpose) 헤더 */}
+    <main className="min-h-screen bg-slate-50 text-slate-900 pb-24 font-sans">
+      {/* 1. 최상단 헤더 */}
       <header className="bg-white border-b border-slate-200 px-5 pt-7 pb-5 sticky top-0 z-10 shadow-xs">
         <div className="max-w-md mx-auto">
           <div className="flex items-center justify-between mb-2">
@@ -257,11 +312,11 @@ export default function POGSDashboard() {
           {loading ? (
             <div className="py-20 flex flex-col items-center justify-center text-slate-400 gap-2">
               <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
-              <p className="text-xs font-medium">구글 시트에서 데이터를 불러오는 중...</p>
+              <p className="text-xs font-medium">데이터를 불러오는 중...</p>
             </div>
           ) : currentStandards.length === 0 ? (
             <div className="py-16 text-center text-xs text-slate-400 border border-dashed rounded-2xl p-6">
-              해당 주기에 등록된 실천 기준이 없습니다.<br />스프레드시트 `Standards` 시트에 항목을 추가해보세요.
+              등록된 항목이 없습니다.<br />우측 하단 '+' 버튼을 눌러 새 실천 항목을 등록해보세요.
             </div>
           ) : (
             currentStandards.map((std) => {
@@ -346,7 +401,110 @@ export default function POGSDashboard() {
         </section>
       </div>
 
-      {/* 4. 미실천 사유 모달 */}
+      {/* 4. 플로팅 추가 버튼 (+) */}
+      <button
+        onClick={() => setIsAddModalOpen(true)}
+        className="fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 active:scale-95 transition-all z-20"
+        title="새 실천 항목 추가"
+      >
+        <Plus className="w-6 h-6" />
+      </button>
+
+      {/* 5. 새 항목 등록 모달 */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-sm font-bold text-slate-900 mb-3">
+              새로운 POGS 실천 항목 추가
+            </h3>
+            
+            <form onSubmit={handleAddNewStandard} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">영역 (Objective)</label>
+                <select 
+                  value={newObjective} 
+                  onChange={(e) => setNewObjective(e.target.value)}
+                  className="w-full p-2.5 border border-slate-200 rounded-xl bg-white"
+                >
+                  <option value="하나님과의 관계">하나님과의 관계</option>
+                  <option value="자기 자신과의 관계">자기 자신과의 관계</option>
+                  <option value="공동체와의 관계">공동체와의 관계</option>
+                  <option value="세상과의 관계">세상과의 관계</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">상위 목표 (Goal)</label>
+                <input 
+                  type="text"
+                  placeholder="예: 독서를 통해 지적 채움을 실현하자"
+                  value={newGoal}
+                  onChange={(e) => setNewGoal(e.target.value)}
+                  className="w-full p-2.5 border border-slate-200 rounded-xl"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">구체적 실천 기준 (Standard)</label>
+                <input 
+                  type="text"
+                  placeholder="예: 매일 성경 읽기 20분"
+                  value={newStandard}
+                  onChange={(e) => setNewStandard(e.target.value)}
+                  className="w-full p-2.5 border border-slate-200 rounded-xl"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">주기 (Frequency)</label>
+                  <select 
+                    value={newFrequency} 
+                    onChange={(e) => setNewFrequency(e.target.value as any)}
+                    className="w-full p-2.5 border border-slate-200 rounded-xl bg-white"
+                  >
+                    <option value="daily">매일 (Daily)</option>
+                    <option value="weekly">이번 주 (Weekly)</option>
+                    <option value="monthly">이번 달 (Monthly)</option>
+                    <option value="long_term">장기 과제</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">요일 지정 (선택)</label>
+                  <input 
+                    type="text"
+                    placeholder="예: 월-금, 토"
+                    value={newTargetDays}
+                    onChange={(e) => setNewTargetDays(e.target.value)}
+                    className="w-full p-2.5 border border-slate-200 rounded-xl"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button 
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="flex-1 py-2.5 font-semibold text-slate-500 bg-slate-100 rounded-xl hover:bg-slate-200"
+                >
+                  취소
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-2.5 font-semibold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700"
+                >
+                  시트에 등록
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 6. 미실천 사유 모달 */}
       {selectedStandard && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl">
