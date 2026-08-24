@@ -17,7 +17,9 @@ import {
   ChevronRight, 
   Calendar as CalendarIcon,
   Filter,
-  Target
+  Target,
+  Edit2,
+  Trash2
 } from 'lucide-react';
 
 interface SeasonItem {
@@ -88,6 +90,14 @@ export default function POGSDashboard() {
   // 미실천 사유 모달
   const [selectedStandard, setSelectedStandard] = useState<StandardItem | null>(null);
   const [reasonInput, setReasonInput] = useState('');
+
+  // ✏️ 수정 모달 상태
+  const [editingStandard, setEditingStandard] = useState<StandardItem | null>(null);
+  const [editStandardText, setEditStandardText] = useState('');
+  const [editGoalText, setEditGoalText] = useState('');
+  const [editObjective, setEditObjective] = useState('하나님과의 관계');
+  const [editFrequency, setEditFrequency] = useState<'daily' | 'weekly' | 'monthly' | 'long_term'>('daily');
+  const [editDays, setEditDays] = useState<string[]>([]);
 
   // 실천 항목 추가 모달 상태
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -271,6 +281,14 @@ export default function POGSDashboard() {
     }
   };
 
+  // 특정 Goal 밑에 바로 추가하기 위한 프리셋 열기
+  const handleOpenAddForGoal = (goal: string, obj: string, defaultFreq: 'daily' | 'weekly' | 'monthly' | 'long_term' = 'daily') => {
+    setNewGoal(goal === '공통 목표' ? '' : goal);
+    setNewObjective(obj || '하나님과의 관계');
+    setNewFrequency(filterFrequency === 'all' ? defaultFreq : filterFrequency);
+    setIsAddModalOpen(true);
+  };
+
   const handleAddNewStandard = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newStandard.trim()) return;
@@ -316,6 +334,91 @@ export default function POGSDashboard() {
     }
   };
 
+  // ✏️ 실천 항목 수정 모달 열기
+  const handleOpenEdit = (std: StandardItem) => {
+    setEditingStandard(std);
+    setEditStandardText(std.standard || '');
+    setEditGoalText(std.goal || '');
+    setEditObjective(std.objective || '하나님과의 관계');
+    setEditFrequency(std.frequency || 'daily');
+    const daysArr = std.target_days ? std.target_days.split(',').map(d => d.trim()).filter(Boolean) : [];
+    setEditDays(daysArr);
+  };
+
+  // ✏️ 실천 항목 수정 저장
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStandard || !editStandardText.trim()) return;
+
+    setSyncing(true);
+    const targetDaysString = editFrequency === 'daily' ? editDays.join(', ') : '';
+    
+    // UI 로컬 즉시 반영
+    setStandards(prev => prev.map(s => {
+      if (s.id === editingStandard.id) {
+        return {
+          ...s,
+          standard: editStandardText,
+          goal: editGoalText,
+          objective: editObjective,
+          frequency: editFrequency,
+          target_days: targetDaysString
+        };
+      }
+      return s;
+    }));
+
+    const stdId = editingStandard.id;
+    setEditingStandard(null);
+
+    try {
+      await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'UPDATE_STANDARD',
+          id: stdId,
+          standard: editStandardText,
+          goal: editGoalText,
+          objective: editObjective,
+          frequency: editFrequency,
+          target_days: targetDaysString,
+          is_active: true
+        })
+      });
+      fetchData();
+    } catch (err) {
+      console.error('수정 저장 실패:', err);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // 🗑️ 실천 항목 숨기기 / 비활성화
+  const handleDeactivateStandard = async (stdId: string | number) => {
+    if (!confirm('이 실천 항목을 이번 시즌에서 숨기시겠습니까?')) return;
+    setSyncing(true);
+    setStandards(prev => prev.filter(s => s.id !== stdId));
+    setEditingStandard(null);
+
+    try {
+      await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'UPDATE_STANDARD',
+          id: stdId,
+          is_active: false
+        })
+      });
+      fetchData();
+    } catch (err) {
+      console.error('항목 비활성화 실패:', err);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleCreateSeason = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSeasonTitle || !newSeasonPurpose) return;
@@ -352,6 +455,14 @@ export default function POGSDashboard() {
       setSelectedDays(selectedDays.filter(d => d !== day));
     } else {
       setSelectedDays([...selectedDays, day]);
+    }
+  };
+
+  const toggleEditDaySelection = (day: string) => {
+    if (editDays.includes(day)) {
+      setEditDays(editDays.filter(d => d !== day));
+    } else {
+      setEditDays([...editDays, day]);
     }
   };
 
@@ -542,7 +653,7 @@ export default function POGSDashboard() {
               ))}
             </div>
 
-            {/* Goal 그룹별 체크리스트 카드 목록 */}
+            {/* Goal 그룹별 카드 목록 */}
             <section className="space-y-4">
               {loading ? (
                 <div className="py-20 flex flex-col items-center justify-center text-slate-400 gap-2">
@@ -555,7 +666,6 @@ export default function POGSDashboard() {
                 </div>
               ) : (
                 Object.entries(groupedByGoal).map(([goalTitle, groupData], gIdx) => {
-                  // 해당 Goal 그룹 내 완료 개수 계산
                   const groupCompletedCount = groupData.items.filter(std => {
                     const log = logs.find(l => String(l.standard_id) === String(std.id) && String(l.date).startsWith(selectedDate));
                     return log?.is_completed;
@@ -563,7 +673,7 @@ export default function POGSDashboard() {
 
                   return (
                     <div key={gIdx} className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-                      {/* Goal 상단 그룹 헤더 (1번만 표시) */}
+                      {/* Goal 헤더 + 빠른 항목 추가 버튼 */}
                       <div className="bg-slate-50/80 px-4 py-3 border-b border-slate-100 flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
                           {groupData.objective && (
@@ -577,9 +687,17 @@ export default function POGSDashboard() {
                           </div>
                         </div>
 
-                        {/* Goal 그룹 달성도 미니 뱃지 */}
-                        <div className="text-[11px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200 shrink-0">
-                          {groupCompletedCount}/{groupData.items.length}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={() => handleOpenAddForGoal(goalTitle, groupData.objective)}
+                            title="이 목표에 실천 기준 바로 추가"
+                            className="text-[11px] font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-lg flex items-center gap-0.5 transition-colors"
+                          >
+                            <Plus className="w-3 h-3" /> 추가
+                          </button>
+                          <div className="text-[11px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200">
+                            {groupCompletedCount}/{groupData.items.length}
+                          </div>
                         </div>
                       </div>
 
@@ -651,18 +769,29 @@ export default function POGSDashboard() {
                                   )}
                                 </div>
 
-                                {!isCompletedOnDate && (
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {/* ✏️ 수정 버튼 */}
                                   <button 
-                                    onClick={() => {
-                                      setSelectedStandard(std);
-                                      setReasonInput(failReason || '');
-                                    }}
-                                    title="미실천 피드백 작성"
-                                    className="text-slate-300 hover:text-slate-600 p-1 shrink-0"
+                                    onClick={() => handleOpenEdit(std)}
+                                    title="실천 내용 수정"
+                                    className="text-slate-300 hover:text-indigo-600 p-1 transition-colors"
                                   >
-                                    <MessageSquare className="w-4 h-4" />
+                                    <Edit2 className="w-3.5 h-3.5" />
                                   </button>
-                                )}
+
+                                  {!isCompletedOnDate && (
+                                    <button 
+                                      onClick={() => {
+                                        setSelectedStandard(std);
+                                        setReasonInput(failReason || '');
+                                      }}
+                                      title="미실천 피드백 작성"
+                                      className="text-slate-300 hover:text-slate-600 p-1 transition-colors"
+                                    >
+                                      <MessageSquare className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           );
@@ -727,7 +856,10 @@ export default function POGSDashboard() {
       {/* 3. 플로팅 추가 버튼 (+) */}
       {mainView === 'checklist' && (
         <button
-          onClick={() => setIsAddModalOpen(true)}
+          onClick={() => {
+            setNewGoal('');
+            setIsAddModalOpen(true);
+          }}
           className="fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 active:scale-95 transition-all z-20"
           title="새 실천 항목 추가"
         >
@@ -735,7 +867,136 @@ export default function POGSDashboard() {
         </button>
       )}
 
-      {/* 4. 새 실천 항목 추가 모달 */}
+      {/* 4. 실천 항목 수정 모달 (✏️) */}
+      {editingStandard && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1">
+                <Edit2 className="w-4 h-4 text-indigo-600" /> 실천 기준 수정
+              </h3>
+              <button
+                type="button"
+                onClick={() => handleDeactivateStandard(editingStandard.id)}
+                className="text-[11px] text-rose-500 hover:text-rose-700 font-medium flex items-center gap-0.5 bg-rose-50 px-2 py-1 rounded-lg"
+              >
+                <Trash2 className="w-3 h-3" /> 항목 숨기기
+              </button>
+            </div>
+            
+            <form onSubmit={handleSaveEdit} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">영역 (Objective)</label>
+                <select 
+                  value={editObjective} 
+                  onChange={(e) => setEditObjective(e.target.value)}
+                  className="w-full p-2.5 border border-slate-200 rounded-xl bg-white"
+                >
+                  <option value="하나님과의 관계">하나님과의 관계</option>
+                  <option value="자기 자신과의 관계">자기 자신과의 관계</option>
+                  <option value="공동체와의 관계">공동체와의 관계</option>
+                  <option value="세상과의 관계">세상과의 관계</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">상위 목표 (Goal)</label>
+                <input 
+                  type="text"
+                  value={editGoalText}
+                  onChange={(e) => setEditGoalText(e.target.value)}
+                  className="w-full p-2.5 border border-slate-200 rounded-xl"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">실천 기준 (Standard)</label>
+                <input 
+                  type="text"
+                  value={editStandardText}
+                  onChange={(e) => setEditStandardText(e.target.value)}
+                  className="w-full p-2.5 border border-slate-200 rounded-xl"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">주기 (Frequency)</label>
+                <select 
+                  value={editFrequency} 
+                  onChange={(e) => setEditFrequency(e.target.value as any)}
+                  className="w-full p-2.5 border border-slate-200 rounded-xl bg-white"
+                >
+                  <option value="daily">일일 실천 (Daily)</option>
+                  <option value="weekly">이번 주 과제 (Weekly)</option>
+                  <option value="monthly">이번 달 과제 (Monthly)</option>
+                  <option value="long_term">장기 과제 (Long-term)</option>
+                </select>
+              </div>
+
+              {editFrequency === 'daily' && (
+                <div>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <label className="text-slate-600 font-medium">실천 요일 선택</label>
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setEditDays(['월', '화', '수', '목', '금'])}
+                        className="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded"
+                      >
+                        평일
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditDays(['월', '화', '수', '목', '금', '토', '일'])}
+                        className="text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded"
+                      >
+                        매일
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-7 gap-1">
+                    {DAYS_OF_WEEK.map(d => {
+                      const isSel = editDays.includes(d);
+                      return (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => toggleEditDaySelection(d)}
+                          className={`py-2 rounded-lg font-bold text-xs transition-all ${
+                            isSel ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                          }`}
+                        >
+                          {d}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button 
+                  type="button"
+                  onClick={() => setEditingStandard(null)}
+                  className="flex-1 py-2.5 font-semibold text-slate-500 bg-slate-100 rounded-xl hover:bg-slate-200"
+                >
+                  취소
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-2.5 font-semibold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700"
+                >
+                  수정 완료
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 5. 새 실천 항목 추가 모달 */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -855,7 +1116,7 @@ export default function POGSDashboard() {
         </div>
       )}
 
-      {/* 5. 새 시즌 개시 모달 */}
+      {/* 6. 새 시즌 개시 모달 */}
       {isNewSeasonModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -930,7 +1191,7 @@ export default function POGSDashboard() {
         </div>
       )}
 
-      {/* 6. 미실천 사유 모달 */}
+      {/* 7. 미실천 사유 모달 */}
       {selectedStandard && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl">
