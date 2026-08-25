@@ -21,8 +21,7 @@ import {
   Edit2,
   EyeOff,
   RotateCcw,
-  User,
-  LogOut
+  User
 } from 'lucide-react';
 
 interface SeasonItem {
@@ -91,7 +90,6 @@ const getSundayToSaturdayWeekRange = (targetDate: Date = new Date()) => {
 };
 
 export default function POGSDashboard() {
-  // 사용자 ID 상태 (기본값: Nathan, 로컬스토리지 연동)
   const [userId, setUserId] = useState<string>('Nathan');
   const [isUserModalOpen, setIsUserModalOpen] = useState<boolean>(false);
   const [tempUserIdInput, setTempUserIdInput] = useState<string>('');
@@ -134,26 +132,34 @@ export default function POGSDashboard() {
   const API_URL = process.env.NEXT_PUBLIC_POGS_API_URL || 'https://script.google.com/macros/s/AKfycbzqgBsCTWSAtbaFqM7biRAm7uutWuWcGLMykV_5tA_tUxa8rWT93IDzR16K8R2gjOcqCw/exec';
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // 최초 로드 시 저장된 사용자 불러오기
   useEffect(() => {
-    const savedUser = localStorage.getItem('pogs_user_id');
-    if (savedUser && savedUser.trim() !== '') {
-      setUserId(savedUser.trim());
-    } else {
-      localStorage.setItem('pogs_user_id', 'Nathan');
+    try {
+      const savedUser = localStorage.getItem('pogs_user_id');
+      if (savedUser && savedUser.trim() !== '') {
+        setUserId(savedUser.trim());
+      } else {
+        localStorage.setItem('pogs_user_id', 'Nathan');
+        setUserId('Nathan');
+      }
+    } catch {
       setUserId('Nathan');
     }
   }, []);
 
   const formatDateStr = (rawDate?: string) => {
     if (!rawDate) return '';
-    if (String(rawDate).includes('T')) return String(rawDate).split('T')[0].replace(/-/g, '.');
-    return String(rawDate).slice(0, 10).replace(/-/g, '.');
+    const s = String(rawDate);
+    if (s.includes('T')) return s.split('T')[0].replace(/-/g, '.');
+    return s.slice(0, 10).replace(/-/g, '.');
   };
 
   const getDayName = (dateStr: string) => {
-    const d = new Date(dateStr);
-    return DAYS_OF_WEEK[d.getDay()];
+    try {
+      const d = new Date(dateStr);
+      return DAYS_OF_WEEK[d.getDay()] || '월';
+    } catch {
+      return '월';
+    }
   };
 
   const fetchData = async () => {
@@ -163,21 +169,20 @@ export default function POGSDashboard() {
     }
     setLoading(true);
     try {
-      // user_id를 쿼리 파라미터로 전송
       const res = await fetch(`${API_URL}?user_id=${encodeURIComponent(userId)}`);
       const data = await res.json();
       
-      if (data.seasons && data.seasons.length > 0) {
+      if (data && Array.isArray(data.seasons) && data.seasons.length > 0) {
         setSeasons(data.seasons);
         const active = data.seasons.find((s: any) => s.is_active === true || String(s.is_active).toUpperCase() === 'TRUE');
-        if (active) setCurrentSeasonId(active.season_id);
-        else setCurrentSeasonId(data.seasons[0].season_id);
+        if (active) setCurrentSeasonId(String(active.season_id));
+        else setCurrentSeasonId(String(data.seasons[0].season_id));
       } else {
         setSeasons([]);
         setCurrentSeasonId('');
       }
 
-      if (data.standards && Array.isArray(data.standards)) {
+      if (data && Array.isArray(data.standards)) {
         const mappedStandards: StandardItem[] = data.standards.map((raw: any) => {
           const findVal = (keys: string[]) => {
             for (const k of keys) {
@@ -193,11 +198,11 @@ export default function POGSDashboard() {
 
           return {
             id: findVal(['id', 'ID', 'no', 'No']) || Math.random().toString(),
-            season_id: findVal(['season_id', 'SEASON_ID']),
-            objective: findVal(['objective', 'objectives', 'Objective', 'Objectives']),
-            goal: findVal(['goal', 'Goal', 'GOAL']),
-            standard: findVal(['standard', 'Standard', 'STANDARD', '실천내용', '기준']),
-            frequency: (findVal(['frequency', 'Frequency']) || 'daily').toLowerCase() as any,
+            season_id: String(findVal(['season_id', 'SEASON_ID']) || ''),
+            objective: String(findVal(['objective', 'objectives', 'Objective', 'Objectives']) || '하나님과의 관계'),
+            goal: String(findVal(['goal', 'Goal', 'GOAL']) || '공통 목표'),
+            standard: String(findVal(['standard', 'Standard', 'STANDARD', '실천내용', '기준']) || ''),
+            frequency: (String(findVal(['frequency', 'Frequency']) || 'daily').toLowerCase()) as any,
             target_count: Number(findVal(['target_count', 'Target_count', 'targetCount'])) || 1,
             target_days: String(findVal(['target_days', 'Target_days', 'targetDays', '요일']) || ''),
             is_active: isActive,
@@ -209,8 +214,19 @@ export default function POGSDashboard() {
         setStandards([]);
       }
 
-      if (data.logs) setLogs(data.logs);
-      else setLogs([]);
+      if (data && Array.isArray(data.logs)) {
+        const mappedLogs: LogItem[] = data.logs.map((l: any) => ({
+          log_id: String(l.log_id || ''),
+          date: String(l.date || ''),
+          standard_id: String(l.standard_id || ''),
+          is_completed: l.is_completed === true || String(l.is_completed).toUpperCase() === 'TRUE',
+          reason_if_failed: String(l.reason_if_failed || ''),
+          season_id: String(l.season_id || '')
+        }));
+        setLogs(mappedLogs);
+      } else {
+        setLogs([]);
+      }
     } catch (err) {
       console.error('데이터 조회 오류:', err);
     } finally {
@@ -227,12 +243,14 @@ export default function POGSDashboard() {
     if (!tempUserIdInput.trim()) return;
     const cleanUser = tempUserIdInput.trim();
     setUserId(cleanUser);
-    localStorage.setItem('pogs_user_id', cleanUser);
+    try {
+      localStorage.setItem('pogs_user_id', cleanUser);
+    } catch {}
     setIsUserModalOpen(false);
     setTempUserIdInput('');
   };
 
-  const currentSeason = seasons.find(s => s.season_id === currentSeasonId) || seasons[0];
+  const currentSeason = seasons.find(s => String(s.season_id) === String(currentSeasonId)) || seasons[0];
 
   const handleShiftDate = (days: number) => {
     const current = new Date(selectedDate);
@@ -355,7 +373,7 @@ export default function POGSDashboard() {
       id: tempId,
       season_id: currentSeasonId,
       objective: newObjective,
-      goal: newGoal,
+      goal: newGoal || '공통 목표',
       standard: newStandard,
       frequency: newFrequency,
       target_days: targetDaysString,
@@ -392,12 +410,12 @@ export default function POGSDashboard() {
 
   const handleOpenEdit = (std: StandardItem) => {
     setEditingStandard(std);
-    setEditStandardText(std.standard || '');
-    setEditGoalText(std.goal || '');
-    setEditObjective(std.objective || '하나님과의 관계');
+    setEditStandardText(String(std.standard || ''));
+    setEditGoalText(String(std.goal || ''));
+    setEditObjective(String(std.objective || '하나님과의 관계'));
     setEditFrequency(std.frequency || 'daily');
     setEditIsActive(std.is_active === true || String(std.is_active).toUpperCase() === 'TRUE');
-    const daysArr = std.target_days ? std.target_days.split(',').map(d => d.trim()).filter(Boolean) : [];
+    const daysArr = std.target_days ? String(std.target_days).split(',').map(d => d.trim()).filter(Boolean) : [];
     setEditDays(daysArr);
   };
 
@@ -413,7 +431,7 @@ export default function POGSDashboard() {
         return {
           ...s,
           standard: editStandardText,
-          goal: editGoalText,
+          goal: editGoalText || '공통 목표',
           objective: editObjective,
           frequency: editFrequency,
           target_days: targetDaysString,
@@ -534,10 +552,10 @@ export default function POGSDashboard() {
   });
 
   const groupedByGoal = filteredStandards.reduce((acc, std) => {
-    const goalKey = std.goal?.trim() || '공통 목표';
+    const goalKey = String(std.goal || '').trim() || '공통 목표';
     if (!acc[goalKey]) {
       acc[goalKey] = {
-        objective: std.objective || '',
+        objective: String(std.objective || ''),
         items: []
       };
     }
@@ -559,7 +577,7 @@ export default function POGSDashboard() {
   const objectives = ['하나님과의 관계', '자기 자신과의 관계', '공동체와의 관계', '세상과의 관계'];
   const activeStandards = seasonStandards.filter(s => s.is_active === true || String(s.is_active).toUpperCase() === 'TRUE');
   const analyticsData = objectives.map(obj => {
-    const objStandards = activeStandards.filter(s => s.objective === obj);
+    const objStandards = activeStandards.filter(s => String(s.objective) === obj);
     const objStandardIds = objStandards.map(s => String(s.id));
     const completedLogsCount = logs.filter(l => objStandardIds.includes(String(l.standard_id)) && l.is_completed).length;
     return {
@@ -569,14 +587,12 @@ export default function POGSDashboard() {
     };
   });
 
-  const failureLogs = logs.filter(l => l.reason_if_failed && l.reason_if_failed.trim() !== '');
+  const failureLogs = logs.filter(l => l.reason_if_failed && String(l.reason_if_failed).trim() !== '');
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 pb-28 font-sans">
-      {/* 1. 최상단 헤더 */}
       <header className="bg-white border-b border-slate-200 px-5 pt-5 pb-4 sticky top-0 z-10 shadow-xs">
         <div className="max-w-md mx-auto">
-          {/* 상단바: 시즌 선택 + 사용자 프로필 버튼 */}
           <div className="flex items-center justify-between mb-2.5">
             <div className="flex items-center gap-1.5">
               {seasons.length > 0 ? (
@@ -611,7 +627,6 @@ export default function POGSDashboard() {
                 <RefreshCw className={`w-3.5 h-3.5 ${loading || syncing ? 'animate-spin text-indigo-600' : ''}`} />
               </button>
               
-              {/* 👤 사용자 전환 뱃지 */}
               <button
                 onClick={() => {
                   setTempUserIdInput(userId);
@@ -626,7 +641,6 @@ export default function POGSDashboard() {
             </div>
           </div>
 
-          {/* Purpose 박스 */}
           <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl mb-3">
             <div className="flex justify-between items-center mb-0.5">
               <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-600 flex items-center gap-1">
@@ -643,7 +657,6 @@ export default function POGSDashboard() {
             </h1>
           </div>
 
-          {/* 날짜 선택 네비게이터 */}
           {mainView === 'checklist' && (
             <div className="bg-indigo-50/70 border border-indigo-100 p-2 rounded-xl flex items-center justify-between mb-3">
               <button 
@@ -702,7 +715,6 @@ export default function POGSDashboard() {
         </div>
       </header>
 
-      {/* 2. 메인 컨텐츠 영역 */}
       <div className="max-w-md mx-auto px-4 mt-4">
         {mainView === 'checklist' ? (
           <>
@@ -818,7 +830,7 @@ export default function POGSDashboard() {
                           const isCompletedOnDate = logOnDate?.is_completed || false;
                           const failReason = logOnDate?.reason_if_failed;
                           const weeklyCount = getWeeklyCompletedCount(std.id);
-                          const isDayApplicable = !std.target_days || std.target_days.includes(selectedDayName);
+                          const isDayApplicable = !std.target_days || String(std.target_days).includes(selectedDayName);
 
                           return (
                             <div 
@@ -987,7 +999,6 @@ export default function POGSDashboard() {
         </button>
       )}
 
-      {/* 👤 사용자 변경/로그인 모달 */}
       {isUserModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-xl">
@@ -1027,7 +1038,6 @@ export default function POGSDashboard() {
         </div>
       )}
 
-      {/* ✏️ 실천 기준 수정 모달 */}
       {editingStandard && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -1161,7 +1171,6 @@ export default function POGSDashboard() {
         </div>
       )}
 
-      {/* 새 실천 항목 추가 모달 */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -1281,7 +1290,6 @@ export default function POGSDashboard() {
         </div>
       )}
 
-      {/* 새 시즌 개시 모달 */}
       {isNewSeasonModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -1356,7 +1364,6 @@ export default function POGSDashboard() {
         </div>
       )}
 
-      {/* 미실천 사유 모달 */}
       {selectedStandard && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl">
