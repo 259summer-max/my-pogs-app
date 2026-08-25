@@ -20,10 +20,13 @@ import {
   Target,
   Edit2,
   EyeOff,
-  RotateCcw
+  RotateCcw,
+  User,
+  LogOut
 } from 'lucide-react';
 
 interface SeasonItem {
+  user_id?: string;
   season_id: string;
   title: string;
   purpose: string;
@@ -33,6 +36,7 @@ interface SeasonItem {
 }
 
 interface StandardItem {
+  user_id?: string;
   id: string | number;
   season_id?: string;
   objective?: string;
@@ -45,6 +49,7 @@ interface StandardItem {
 }
 
 interface LogItem {
+  user_id?: string;
   log_id: string;
   date: string;
   standard_id: string | number;
@@ -86,6 +91,11 @@ const getSundayToSaturdayWeekRange = (targetDate: Date = new Date()) => {
 };
 
 export default function POGSDashboard() {
+  // 사용자 ID 상태 (기본값: Nathan, 로컬스토리지 연동)
+  const [userId, setUserId] = useState<string>('Nathan');
+  const [isUserModalOpen, setIsUserModalOpen] = useState<boolean>(false);
+  const [tempUserIdInput, setTempUserIdInput] = useState<string>('');
+
   const [seasons, setSeasons] = useState<SeasonItem[]>([]);
   const [currentSeasonId, setCurrentSeasonId] = useState<string>('');
   const [standards, setStandards] = useState<StandardItem[]>([]);
@@ -121,9 +131,19 @@ export default function POGSDashboard() {
   const [newSeasonStart, setNewSeasonStart] = useState('');
   const [newSeasonEnd, setNewSeasonEnd] = useState('');
 
-  // 환경변수가 없어도 최신 배포 URL을 기본 사용하도록 지정
   const API_URL = process.env.NEXT_PUBLIC_POGS_API_URL || 'https://script.google.com/macros/s/AKfycbzqgBsCTWSAtbaFqM7biRAm7uutWuWcGLMykV_5tA_tUxa8rWT93IDzR16K8R2gjOcqCw/exec';
   const todayStr = new Date().toISOString().split('T')[0];
+
+  // 최초 로드 시 저장된 사용자 불러오기
+  useEffect(() => {
+    const savedUser = localStorage.getItem('pogs_user_id');
+    if (savedUser && savedUser.trim() !== '') {
+      setUserId(savedUser.trim());
+    } else {
+      localStorage.setItem('pogs_user_id', 'Nathan');
+      setUserId('Nathan');
+    }
+  }, []);
 
   const formatDateStr = (rawDate?: string) => {
     if (!rawDate) return '';
@@ -137,20 +157,26 @@ export default function POGSDashboard() {
   };
 
   const fetchData = async () => {
-    if (!API_URL) {
+    if (!API_URL || !userId) {
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch(API_URL);
+      // user_id를 쿼리 파라미터로 전송
+      const res = await fetch(`${API_URL}?user_id=${encodeURIComponent(userId)}`);
       const data = await res.json();
+      
       if (data.seasons && data.seasons.length > 0) {
         setSeasons(data.seasons);
         const active = data.seasons.find((s: any) => s.is_active === true || String(s.is_active).toUpperCase() === 'TRUE');
         if (active) setCurrentSeasonId(active.season_id);
         else setCurrentSeasonId(data.seasons[0].season_id);
+      } else {
+        setSeasons([]);
+        setCurrentSeasonId('');
       }
+
       if (data.standards && Array.isArray(data.standards)) {
         const mappedStandards: StandardItem[] = data.standards.map((raw: any) => {
           const findVal = (keys: string[]) => {
@@ -179,8 +205,12 @@ export default function POGSDashboard() {
         });
 
         setStandards(mappedStandards);
+      } else {
+        setStandards([]);
       }
+
       if (data.logs) setLogs(data.logs);
+      else setLogs([]);
     } catch (err) {
       console.error('데이터 조회 오류:', err);
     } finally {
@@ -189,8 +219,18 @@ export default function POGSDashboard() {
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (userId) fetchData();
+  }, [userId]);
+
+  const handleUserChange = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tempUserIdInput.trim()) return;
+    const cleanUser = tempUserIdInput.trim();
+    setUserId(cleanUser);
+    localStorage.setItem('pogs_user_id', cleanUser);
+    setIsUserModalOpen(false);
+    setTempUserIdInput('');
+  };
 
   const currentSeason = seasons.find(s => s.season_id === currentSeasonId) || seasons[0];
 
@@ -213,6 +253,7 @@ export default function POGSDashboard() {
       updatedLogs[existingLogIdx] = { ...updatedLogs[existingLogIdx], is_completed: nextStatus };
     } else {
       updatedLogs.push({
+        user_id: userId,
         log_id: Date.now().toString(),
         date: selectedDate,
         standard_id: standardId,
@@ -228,6 +269,7 @@ export default function POGSDashboard() {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: 'LOG_CHECK',
+          user_id: userId,
           date: selectedDate,
           standard_id: standardId,
           is_completed: nextStatus,
@@ -260,6 +302,7 @@ export default function POGSDashboard() {
       };
     } else {
       updatedLogs.push({
+        user_id: userId,
         log_id: Date.now().toString(),
         date: selectedDate,
         standard_id: standardId,
@@ -276,6 +319,7 @@ export default function POGSDashboard() {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: 'LOG_CHECK',
+          user_id: userId,
           date: selectedDate,
           standard_id: standardId,
           is_completed: false,
@@ -307,6 +351,7 @@ export default function POGSDashboard() {
     const targetDaysString = newFrequency === 'daily' ? selectedDays.join(', ') : '';
     const tempId = Date.now().toString();
     const newItem: StandardItem = {
+      user_id: userId,
       id: tempId,
       season_id: currentSeasonId,
       objective: newObjective,
@@ -326,6 +371,7 @@ export default function POGSDashboard() {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: 'ADD_STANDARD',
+          user_id: userId,
           season_id: currentSeasonId,
           objective: newObjective,
           goal: newGoal,
@@ -386,6 +432,7 @@ export default function POGSDashboard() {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: 'UPDATE_STANDARD',
+          user_id: userId,
           id: stdId,
           standard: editStandardText,
           goal: editGoalText,
@@ -414,6 +461,7 @@ export default function POGSDashboard() {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: 'UPDATE_STANDARD',
+          user_id: userId,
           id: stdId,
           is_active: nextActive
         })
@@ -439,6 +487,7 @@ export default function POGSDashboard() {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: 'CREATE_SEASON',
+          user_id: userId,
           title: newSeasonTitle,
           purpose: newSeasonPurpose,
           start_date: newSeasonStart,
@@ -524,23 +573,29 @@ export default function POGSDashboard() {
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 pb-28 font-sans">
-      <header className="bg-white border-b border-slate-200 px-5 pt-6 pb-4 sticky top-0 z-10 shadow-xs">
+      {/* 1. 최상단 헤더 */}
+      <header className="bg-white border-b border-slate-200 px-5 pt-5 pb-4 sticky top-0 z-10 shadow-xs">
         <div className="max-w-md mx-auto">
+          {/* 상단바: 시즌 선택 + 사용자 프로필 버튼 */}
           <div className="flex items-center justify-between mb-2.5">
-            <div className="flex items-center gap-2">
-              <select 
-                value={currentSeasonId} 
-                onChange={(e) => setCurrentSeasonId(e.target.value)}
-                className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg focus:outline-none"
-              >
-                {seasons.map(s => (
-                  <option key={s.season_id} value={s.season_id}>{s.title}</option>
-                ))}
-              </select>
+            <div className="flex items-center gap-1.5">
+              {seasons.length > 0 ? (
+                <select 
+                  value={currentSeasonId} 
+                  onChange={(e) => setCurrentSeasonId(e.target.value)}
+                  className="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg focus:outline-none"
+                >
+                  {seasons.map(s => (
+                    <option key={s.season_id} value={s.season_id}>{s.title}</option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg">시즌 없음</span>
+              )}
               
               <button 
                 onClick={() => setIsNewSeasonModalOpen(true)}
-                className="text-[11px] font-semibold text-slate-500 hover:text-indigo-600 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
+                className="text-[11px] font-semibold text-slate-500 hover:text-indigo-600 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-0.5"
               >
                 <Plus className="w-3 h-3" /> 새 시즌
               </button>
@@ -555,21 +610,40 @@ export default function POGSDashboard() {
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loading || syncing ? 'animate-spin text-indigo-600' : ''}`} />
               </button>
-              <span className="text-[11px] text-slate-500 font-medium bg-slate-100 px-2 py-1 rounded-md">
-                {currentSeason ? `${formatDateStr(currentSeason.start_date)} ~ ${formatDateStr(currentSeason.end_date)}` : ''}
-              </span>
+              
+              {/* 👤 사용자 전환 뱃지 */}
+              <button
+                onClick={() => {
+                  setTempUserIdInput(userId);
+                  setIsUserModalOpen(true);
+                }}
+                className="text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors"
+                title="사용자 변경"
+              >
+                <User className="w-3 h-3 text-indigo-600" />
+                <span>{userId}</span>
+              </button>
             </div>
           </div>
 
+          {/* Purpose 박스 */}
           <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl mb-3">
-            <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-600 mb-0.5 flex items-center gap-1">
-              <Sparkles className="w-3 h-3" /> PURPOSE (인생 목적)
+            <div className="flex justify-between items-center mb-0.5">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-600 flex items-center gap-1">
+                <Sparkles className="w-3 h-3" /> PURPOSE (인생 목적)
+              </div>
+              {currentSeason && (
+                <span className="text-[10px] text-slate-400 font-medium">
+                  {formatDateStr(currentSeason.start_date)} ~ {formatDateStr(currentSeason.end_date)}
+                </span>
+              )}
             </div>
             <h1 className="text-sm font-bold text-slate-900 leading-snug">
-              {currentSeason?.purpose || '등록된 목적이 없습니다.'}
+              {currentSeason?.purpose || '등록된 시즌 및 목적이 없습니다. [+ 새 시즌]을 시작해보세요.'}
             </h1>
           </div>
 
+          {/* 날짜 선택 네비게이터 */}
           {mainView === 'checklist' && (
             <div className="bg-indigo-50/70 border border-indigo-100 p-2 rounded-xl flex items-center justify-between mb-3">
               <button 
@@ -628,6 +702,7 @@ export default function POGSDashboard() {
         </div>
       </header>
 
+      {/* 2. 메인 컨텐츠 영역 */}
       <div className="max-w-md mx-auto px-4 mt-4">
         {mainView === 'checklist' ? (
           <>
@@ -689,8 +764,8 @@ export default function POGSDashboard() {
                 </div>
               ) : Object.keys(groupedByGoal).length === 0 ? (
                 <div className="py-16 text-center text-xs text-slate-400 border border-dashed rounded-2xl p-6 bg-white">
-                  {filterFrequency === 'hidden' ? '숨겨진 실천 항목이 없습니다.' : '해당 조건의 실천 기준이 없습니다.'}<br />
-                  {filterFrequency !== 'hidden' && "하단 '+' 버튼으로 새 항목을 추가해보세요."}
+                  {filterFrequency === 'hidden' ? '숨겨진 실천 항목이 없습니다.' : `${userId} 님으로 등록된 실천 항목이 없습니다.`}<br />
+                  {filterFrequency !== 'hidden' && "하단 '+' 버튼으로 첫 실천 기준을 추가해보세요."}
                 </div>
               ) : (
                 Object.entries(groupedByGoal).map(([goalTitle, groupData], gIdx) => {
@@ -912,6 +987,47 @@ export default function POGSDashboard() {
         </button>
       )}
 
+      {/* 👤 사용자 변경/로그인 모달 */}
+      {isUserModalOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-xl">
+            <h3 className="text-sm font-bold text-slate-900 mb-1 flex items-center gap-1.5">
+              <User className="w-4 h-4 text-indigo-600" /> 사용자 전환 / 닉네임 설정
+            </h3>
+            <p className="text-xs text-slate-500 mb-3">사용하실 닉네임(영문/한글)을 입력해 주세요.</p>
+
+            <form onSubmit={handleUserChange} className="space-y-3 text-xs">
+              <input 
+                type="text"
+                placeholder="예: Nathan, Joshua, 김목사"
+                value={tempUserIdInput}
+                onChange={(e) => setTempUserIdInput(e.target.value)}
+                className="w-full p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                required
+                autoFocus
+              />
+
+              <div className="flex gap-2 pt-1">
+                <button 
+                  type="button"
+                  onClick={() => setIsUserModalOpen(false)}
+                  className="flex-1 py-2 font-semibold text-slate-500 bg-slate-100 rounded-xl hover:bg-slate-200"
+                >
+                  닫기
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-2 font-semibold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700"
+                >
+                  전환하기
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ✏️ 실천 기준 수정 모달 */}
       {editingStandard && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -1045,6 +1161,7 @@ export default function POGSDashboard() {
         </div>
       )}
 
+      {/* 새 실천 항목 추가 모달 */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -1164,11 +1281,12 @@ export default function POGSDashboard() {
         </div>
       )}
 
+      {/* 새 시즌 개시 모달 */}
       {isNewSeasonModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-sm font-bold text-slate-900 mb-1">새 시즌(기간) 시작하기</h3>
-            <p className="text-xs text-slate-500 mb-3">새로운 중심 목적(Purpose)과 기간을 설정합니다.</p>
+            <p className="text-xs text-slate-500 mb-3">{userId} 님의 새로운 중심 목적과 기간을 설정합니다.</p>
 
             <form onSubmit={handleCreateSeason} className="space-y-3 text-xs">
               <div>
@@ -1238,6 +1356,7 @@ export default function POGSDashboard() {
         </div>
       )}
 
+      {/* 미실천 사유 모달 */}
       {selectedStandard && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-xl">
