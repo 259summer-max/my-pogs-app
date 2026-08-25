@@ -62,6 +62,17 @@ const FREQUENCY_MAP = {
 
 const DAYS_OF_WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 
+// 같은 목표(goal) 안에서 여러 실천 기준(standard)을 시각적으로 구분하기 위한 좌측 컬러 바 팔레트
+// 항목 순서(index)에 따라 이 배열을 순환하며 색을 배정합니다.
+const ITEM_ACCENT_COLORS = [
+  'border-l-indigo-400',
+  'border-l-emerald-400',
+  'border-l-amber-400',
+  'border-l-rose-400',
+  'border-l-sky-400',
+  'border-l-purple-400',
+];
+
 const getSundayToSaturdayWeekRange = (targetDate: Date = new Date()) => {
   const current = new Date(targetDate);
   const day = current.getDay();
@@ -721,10 +732,11 @@ export default function POGSDashboard() {
                       </div>
 
                       <div className="divide-y divide-slate-100">
-                        {groupData.items.map((std) => {
+                        {groupData.items.map((std, sIdx) => {
                           const freq = std.frequency || 'daily';
                           const config = FREQUENCY_MAP[freq] || FREQUENCY_MAP.daily;
                           const isItemActive = std.is_active === true || String(std.is_active).toUpperCase() === 'TRUE';
+                          const accentColor = ITEM_ACCENT_COLORS[sIdx % ITEM_ACCENT_COLORS.length];
                           
                           const logOnDate = logs.find(
                             l => String(l.standard_id) === String(std.id) && String(l.date).startsWith(selectedDate)
@@ -737,7 +749,7 @@ export default function POGSDashboard() {
                           return (
                             <div 
                               key={std.id}
-                              className={`p-3.5 transition-colors ${
+                              className={`p-3.5 border-l-4 ${isItemActive ? accentColor : 'border-l-slate-200'} transition-colors ${
                                 isCompletedOnDate ? 'bg-emerald-50/20' : 'hover:bg-slate-50/50'
                               } ${!isDayApplicable && freq === 'daily' && isItemActive ? 'opacity-65' : ''} ${
                                 !isItemActive ? 'bg-slate-50/70' : ''
