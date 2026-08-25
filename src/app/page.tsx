@@ -121,7 +121,8 @@ export default function POGSDashboard() {
   const [newSeasonStart, setNewSeasonStart] = useState('');
   const [newSeasonEnd, setNewSeasonEnd] = useState('');
 
-  const API_URL = process.env.NEXT_PUBLIC_POGS_API_URL || '';
+  // 환경변수가 없어도 최신 배포 URL을 기본 사용하도록 지정
+  const API_URL = process.env.NEXT_PUBLIC_POGS_API_URL || 'https://script.google.com/macros/s/AKfycbzqgBsCTWSAtbaFqM7biRAm7uutWuWcGLMykV_5tA_tUxa8rWT93IDzR16K8R2gjOcqCw/exec';
   const todayStr = new Date().toISOString().split('T')[0];
 
   const formatDateStr = (rawDate?: string) => {
@@ -472,7 +473,6 @@ export default function POGSDashboard() {
     }
   };
 
-  // 현재 시즌 기준 실천 항목 목록 (season_id가 매칭되거나 공통인 항목)
   const seasonStandards = standards.filter(s => !s.season_id || !currentSeasonId || String(s.season_id) === String(currentSeasonId));
   const hiddenCount = seasonStandards.filter(s => s.is_active === false || String(s.is_active).toUpperCase() === 'FALSE').length;
 
