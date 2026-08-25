@@ -1,36 +1,25 @@
-import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import type { Metadata, Viewport } from 'next';
+import './globals.css';
 
 export const viewport: Viewport = {
-  themeColor: "#4f46e5",
-  width: "device-width",
+  themeColor: '#312e81',
+  width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
 };
 
 export const metadata: Metadata = {
-  title: "POGS Dashboard",
-  description: "Purpose, Objectives, Goals, Standards Dashboard",
+  title: 'POGS',
+  description: 'Personal Objectives & Goals System',
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
-    title: "POGS",
+    statusBarStyle: 'default',
+    title: 'POGS',
   },
   icons: {
-    icon: "/icon.png?v=2",
-    apple: "/apple-touch-icon.png?v=2",
+    icon: '/icon.png',
+    apple: '/apple-icon.png',
   },
 };
 
@@ -42,13 +31,12 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <head>
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
-        <link rel="apple-touch-icon-precomposed" href="/apple-touch-icon.png?v=2" />
-        <link rel="icon" href="/icon.png?v=2" />
+        {/* iOS 사파리 전용 정적 태그 직접 주입 */}
+        <link rel="apple-touch-icon" sizes="180x180" href="/apple-icon.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
       </head>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased selection:bg-indigo-500 selection:text-white`}
-      >
+      <body className="antialiased bg-slate-50 text-slate-900 select-none">
         {children}
       </body>
     </html>
