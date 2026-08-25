@@ -62,8 +62,6 @@ const FREQUENCY_MAP = {
 
 const DAYS_OF_WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 
-// 같은 목표(goal) 안에서 여러 실천 기준(standard)을 시각적으로 구분하기 위한 좌측 컬러 바 팔레트
-// 항목 순서(index)에 따라 이 배열을 순환하며 색을 배정합니다.
 const ITEM_ACCENT_COLORS = [
   'border-l-indigo-400',
   'border-l-emerald-400',
