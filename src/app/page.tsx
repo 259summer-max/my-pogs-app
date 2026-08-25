@@ -63,12 +63,12 @@ const FREQUENCY_MAP = {
 const DAYS_OF_WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 
 const ITEM_ACCENT_COLORS = [
-  'border-l-indigo-400',
-  'border-l-emerald-400',
-  'border-l-amber-400',
-  'border-l-rose-400',
-  'border-l-sky-400',
-  'border-l-purple-400',
+  'border-l-indigo-500',
+  'border-l-emerald-500',
+  'border-l-amber-500',
+  'border-l-rose-500',
+  'border-l-sky-500',
+  'border-l-purple-500',
 ];
 
 const getSundayToSaturdayWeekRange = (targetDate: Date = new Date()) => {
@@ -472,7 +472,8 @@ export default function POGSDashboard() {
     }
   };
 
-  const seasonStandards = standards.filter(s => !s.season_id || s.season_id === currentSeasonId);
+  // 현재 시즌 기준 실천 항목 목록 (season_id가 매칭되거나 공통인 항목)
+  const seasonStandards = standards.filter(s => !s.season_id || !currentSeasonId || String(s.season_id) === String(currentSeasonId));
   const hiddenCount = seasonStandards.filter(s => s.is_active === false || String(s.is_active).toUpperCase() === 'FALSE').length;
 
   const filteredStandards = seasonStandards.filter(s => {
