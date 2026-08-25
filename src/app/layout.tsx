@@ -26,6 +26,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
+      <head>
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+      </head>
       <body className="antialiased bg-slate-50 text-slate-900 select-none">
         {children}
       </body>
